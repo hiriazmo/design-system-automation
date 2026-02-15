@@ -1,0 +1,10 @@
+{
+  "name": "Design Token Creator",
+  "id": "1234567890",
+  "api": "1.0.0",
+  "main": "src/code.js",
+  "ui": "ui/ui.html",
+  "capabilities": ["textreview"],
+  "editorType": ["figma"],
+  "documentAccess": "dynamic"
+}

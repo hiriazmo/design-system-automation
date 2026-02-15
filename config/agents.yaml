@@ -1,0 +1,435 @@
+# =============================================================================
+# DESIGN SYSTEM EXTRACTOR v2 - AGENT CONFIGURATIONS
+# =============================================================================
+# 
+# This file defines the personas and configurations for each agent in the
+# design system extraction pipeline.
+#
+# Model Provider Options (via HuggingFace Inference Providers):
+#   - novita (default, good balance of cost/quality)
+#   - groq (fastest, good for Llama/Qwen)
+#   - cerebras (ultra-fast)
+#   - sambanova (good for Llama)
+#   - together (wide model selection)
+#   - fireworks-ai (good for code models)
+#
+# =============================================================================
+
+# =============================================================================
+# INFERENCE PROVIDER CONFIGURATION
+# =============================================================================
+inference:
+  # Default provider for all LLM calls
+  default_provider: "novita"
+  
+  # Fallback chain if primary fails
+  fallback_providers:
+    - "together"
+    - "sambanova"
+    - "groq"
+  
+  # HuggingFace account tiers
+  billing:
+    free_tier_credits: 0.10  # USD per month
+    pro_tier_credits: 2.00   # USD per month ($9/mo subscription)
+    warning_threshold: 0.80  # Warn at 80% usage
+    
+  # Show cost tracking in logs
+  show_cost_tracking: true
+
+# =============================================================================
+# STAGE 1: EXTRACTION (No LLM needed)
+# =============================================================================
+
+agent1_crawler:
+  name: "Website Crawler"
+  persona: "Meticulous Design Archaeologist"
+  description: |
+    Discovers and crawls website pages to extract design tokens.
+    Uses Playwright for browser automation.
+  model: null  # Rule-based, no LLM needed
+  
+agent1_extractor:
+  name: "Token Extractor"
+  persona: "Meticulous Design Archaeologist"
+  description: |
+    Extracts colors, typography, spacing, radius, and shadows from pages.
+    Pure CSS/computed style extraction.
+  model: null  # Rule-based, no LLM needed
+
+# =============================================================================
+# STAGE 1: NORMALIZATION
+# =============================================================================
+
+agent2_normalizer:
+  name: "Token Normalizer"
+  persona: "Design System Librarian"
+  description: |
+    Cleans, deduplicates, and structures extracted tokens.
+    Infers naming patterns and semantic roles.
+  model: "microsoft/Phi-3.5-mini-instruct"
+  provider: "novita"
+  max_tokens: 1000
+  temperature: 0.3
+  tasks:
+    - Clean noisy extraction data
+    - Deduplicate similar tokens
+    - Infer semantic naming (primary, secondary, etc.)
+    - Tag confidence levels
+
+# =============================================================================
+# STAGE 2: MULTI-AGENT ANALYSIS (LangGraph Parallel)
+# =============================================================================
+# 
+# Architecture:
+#   LLM 1 ─┐
+#          ├──> HEAD ──> Final Recommendations
+#   LLM 2 ─┘
+#   
+# LLM 1 and LLM 2 run in PARALLEL via LangGraph
+# HEAD compiles results and resolves conflicts
+#
+# =============================================================================
+
+stage2_llm1:
+  name: "Design Analyst 1"
+  persona: "Senior Design Systems Architect (Global Perspective)"
+  description: |
+    Analyzes design tokens against industry best practices.
+    Focuses on global/Asian design systems (Ant Design, etc.)
+  model: "Qwen/Qwen2.5-72B-Instruct"
+  provider: "novita"
+  max_tokens: 1500
+  temperature: 0.4
+  # Cost tracking (per million tokens)
+  cost_per_million_input: 0.29
+  cost_per_million_output: 0.59
+  tasks:
+    - Analyze typography patterns and scale consistency
+    - Evaluate color system and semantic usage
+    - Check AA/WCAG accessibility compliance
+    - Assess spacing consistency and grid alignment
+    - Compare against competitor design systems
+  expertise:
+    - Typography best practices and type scales
+    - Color theory and accessibility standards
+    - Spacing systems (4px, 8px grids)
+    - International design standards
+    - Ant Design, Chakra UI patterns
+
+stage2_llm2:
+  name: "Design Analyst 2"
+  persona: "Senior Design Systems Architect (Western Perspective)"
+  description: |
+    Analyzes design tokens against industry best practices.
+    Focuses on Western/US design systems (Material, Apple, etc.)
+  model: "meta-llama/Llama-3.3-70B-Instruct"
+  provider: "novita"
+  max_tokens: 1500
+  temperature: 0.4
+  # Cost tracking (per million tokens)
+  cost_per_million_input: 0.59
+  cost_per_million_output: 0.79
+  tasks:
+    - Analyze typography patterns and scale consistency
+    - Evaluate color system and semantic usage
+    - Check AA/WCAG accessibility compliance
+    - Assess spacing consistency and grid alignment
+    - Compare against competitor design systems
+  expertise:
+    - Material Design 3 patterns
+    - Apple Human Interface Guidelines
+    - Shopify Polaris conventions
+    - IBM Carbon design standards
+    - Atlassian Design System
+
+stage2_head:
+  name: "Head Compiler"
+  persona: "Principal Design Systems Architect"
+  description: |
+    Compiles analyses from both LLM analysts.
+    Resolves conflicts and synthesizes final recommendations.
+  model: "meta-llama/Llama-3.3-70B-Instruct"
+  provider: "novita"
+  max_tokens: 2000
+  temperature: 0.3
+  # Cost tracking (per million tokens)
+  cost_per_million_input: 0.59
+  cost_per_million_output: 0.79
+  tasks:
+    - Compare both analyst perspectives
+    - Identify agreements and disagreements
+    - Resolve conflicts with clear reasoning
+    - Synthesize final recommendations
+    - Provide confidence scores
+  expertise:
+    - Cross-cultural design synthesis
+    - Conflict resolution and arbitration
+    - Best practice prioritization
+
+stage2_rules:
+  name: "Rule Engine"
+  persona: "Calculation Engine"
+  description: |
+    Performs deterministic calculations.
+    No LLM needed - pure math/logic.
+  model: null  # No LLM - FREE
+  tasks:
+    - Generate type scale options (1.2, 1.25, 1.333)
+    - Calculate spacing grid alignments (4px, 8px)
+    - Generate color ramps (50-950 shades)
+    - Compute contrast ratios for accessibility
+
+# =============================================================================
+# STAGE 3: GENERATION
+# =============================================================================
+
+agent4_generator:
+  name: "JSON Generator"
+  persona: "Automation Engineer"
+  description: |
+    Converts finalized tokens to production-ready JSON.
+    Generates Figma-compatible token files.
+  model: "mistralai/Codestral-22B-v0.1"
+  provider: "novita"
+  max_tokens: 2000
+  temperature: 0.2
+  tasks:
+    - Generate final JSON structure
+    - Apply selected upgrades
+    - Format for Figma Tokens Studio
+    - Include metadata and versioning
+
+# =============================================================================
+# COMPETITOR DESIGN SYSTEMS
+# =============================================================================
+
+competitors:
+  # Default list (shown in UI, user can edit)
+  default:
+    - "Material Design 3"
+    - "Apple Human Interface Guidelines"
+    - "Shopify Polaris"
+    - "IBM Carbon"
+    - "Atlassian Design System"
+  
+  # Suggestions for user to add
+  suggestions:
+    - "Ant Design"
+    - "Chakra UI"
+    - "Tailwind CSS"
+    - "Bootstrap"
+    - "Salesforce Lightning"
+    - "Adobe Spectrum"
+    - "GitHub Primer"
+    - "Microsoft Fluent"
+    - "Radix UI"
+    - "MUI (Material UI)"
+
+# =============================================================================
+# LLM PROMPT TEMPLATES
+# =============================================================================
+
+prompts:
+  # Prompt for LLM 1 and LLM 2 (same structure, different perspective)
+  analyst: |
+    You are a {persona}.
+    
+    ## YOUR TASK
+    Analyze these design tokens extracted from a website and compare against industry best practices.
+    
+    ## EXTRACTED TOKENS
+    {tokens_summary}
+    
+    ## COMPETITOR DESIGN SYSTEMS TO RESEARCH
+    {competitors}
+    
+    ## ANALYZE THE FOLLOWING:
+    
+    ### 1. Typography
+    - Is the type scale consistent? Does it follow a mathematical ratio?
+    - What is the detected base size?
+    - Compare to competitors: what ratios do they use?
+    - Score (1-10) and specific recommendations
+    
+    ### 2. Colors
+    - Is the color palette cohesive?
+    - Are semantic colors properly defined (primary, secondary, etc.)?
+    - Compare to competitors: how do they structure colors?
+    - Score (1-10) and specific recommendations
+    
+    ### 3. Accessibility (AA Compliance)
+    - What contrast issues exist?
+    - Which color combinations fail WCAG AA (4.5:1 for text)?
+    - Specific fixes needed
+    - Score (1-10)
+    
+    ### 4. Spacing
+    - Is spacing consistent? Does it follow a grid (4px, 8px)?
+    - What base unit is detected?
+    - Compare to competitors: what spacing systems do they use?
+    - Score (1-10) and specific recommendations
+    
+    ### 5. Overall Assessment
+    - Top 3 priorities for improvement
+    - What works well (keep these)
+    - What needs immediate attention
+    
+    ## RESPOND IN JSON FORMAT:
+    ```json
+    {{
+      "typography": {{
+        "analysis": "...",
+        "detected_ratio": 1.2,
+        "detected_base": 16,
+        "score": 7,
+        "recommendations": ["...", "..."]
+      }},
+      "colors": {{
+        "analysis": "...",
+        "score": 6,
+        "recommendations": ["...", "..."]
+      }},
+      "accessibility": {{
+        "issues": ["...", "..."],
+        "score": 5,
+        "fixes": ["...", "..."]
+      }},
+      "spacing": {{
+        "analysis": "...",
+        "detected_base": 8,
+        "score": 7,
+        "recommendations": ["...", "..."]
+      }},
+      "overall_assessment": "...",
+      "top_3_priorities": ["...", "...", "..."],
+      "confidence": 85
+    }}
+    ```
+
+  # Prompt for HEAD compiler
+  head_compiler: |
+    You are a Principal Design Systems Architect compiling analyses from two expert analysts.
+    
+    ## ANALYST 1 (Global/Asian Perspective) FINDINGS:
+    {llm1_analysis}
+    
+    ## ANALYST 2 (Western/US Perspective) FINDINGS:
+    {llm2_analysis}
+    
+    ## RULE-BASED CALCULATIONS:
+    {rule_calculations}
+    
+    ## YOUR TASK:
+    1. Compare both analyst perspectives
+    2. Identify where they AGREE (high confidence)
+    3. Identify where they DISAGREE (need resolution)
+    4. Resolve disagreements with clear reasoning
+    5. Synthesize final recommendations
+    
+    ## RESPOND IN JSON FORMAT:
+    ```json
+    {{
+      "agreements": [
+        {{"topic": "typography", "finding": "...", "confidence": 95}},
+        ...
+      ],
+      "disagreements": [
+        {{"topic": "spacing", "llm1_view": "...", "llm2_view": "...", "resolution": "...", "reasoning": "..."}}
+      ],
+      "final_recommendations": {{
+        "type_scale": "1.25",
+        "type_scale_rationale": "Both analysts agree 1.25 (Major Third) balances readability and hierarchy",
+        "spacing_base": "8px",
+        "spacing_rationale": "8px grid provides better alignment with industry standards",
+        "color_improvements": ["Generate full ramps", "Fix contrast on secondary"],
+        "accessibility_fixes": ["Increase body text contrast to 4.5:1"]
+      }},
+      "overall_confidence": 88,
+      "summary": "The extracted design system shows strong typography foundations but needs spacing normalization and color accessibility improvements."
+    }}
+    ```
+
+# =============================================================================
+# EXTRACTION SETTINGS
+# =============================================================================
+
+extraction:
+  viewports:
+    desktop:
+      width: 1440
+      height: 900
+      name: "Desktop"
+    mobile:
+      width: 375
+      height: 812
+      name: "Mobile"
+  
+  crawling:
+    max_pages: 20
+    min_pages: 10
+    scroll_behavior: "smooth"
+    wait_for_network_idle: true
+    network_idle_timeout_ms: 5000
+    skip_infinite_scroll: true
+
+# =============================================================================
+# TYPE SCALE OPTIONS
+# =============================================================================
+
+type_scales:
+  minor_second:
+    ratio: 1.067
+    name: "Minor Second"
+    description: "Very subtle, good for dense data UIs"
+  major_second:
+    ratio: 1.125
+    name: "Major Second"
+    description: "Subtle progression"
+  minor_third:
+    ratio: 1.2
+    name: "Minor Third"
+    description: "Balanced, widely used"
+  major_third:
+    ratio: 1.25
+    name: "Major Third"
+    description: "Classic, recommended for most UIs"
+    recommended: true
+  perfect_fourth:
+    ratio: 1.333
+    name: "Perfect Fourth"
+    description: "Strong hierarchy, good for marketing"
+  golden_ratio:
+    ratio: 1.618
+    name: "Golden Ratio"
+    description: "Dramatic, use sparingly"
+
+# =============================================================================
+# SPACING SYSTEMS
+# =============================================================================
+
+spacing_systems:
+  4px_grid:
+    base: 4
+    name: "4px Grid"
+    description: "Fine-grained control, good for dense UIs"
+    scale: [0, 4, 8, 12, 16, 20, 24, 32, 40, 48, 64]
+  8px_grid:
+    base: 8
+    name: "8px Grid"
+    description: "Industry standard, recommended"
+    recommended: true
+    scale: [0, 8, 16, 24, 32, 48, 64, 80, 96, 128]
+
+# =============================================================================
+# COLOR RAMP GENERATION
+# =============================================================================
+
+color_ramps:
+  shades: [50, 100, 200, 300, 400, 500, 600, 700, 800, 900, 950]
+  method: "oklch"  # Modern perceptually uniform
+  
+  accessibility:
+    aa_minimum: 4.5
+    aaa_minimum: 7.0
+    large_text_aa: 3.0

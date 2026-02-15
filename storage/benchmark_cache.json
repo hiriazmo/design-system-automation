@@ -1,0 +1,20 @@
+{
+  "test_system": {
+    "key": "test_system",
+    "name": "Test System",
+    "short_name": "Test",
+    "vendor": "Test Vendor",
+    "icon": "\ud83e\uddea",
+    "typography": {
+      "scale_ratio": 1.25,
+      "base_size": 16
+    },
+    "spacing": {
+      "base": 8
+    },
+    "colors": {},
+    "fetched_at": "2026-02-15T12:12:38.917158",
+    "confidence": "high",
+    "best_for": []
+  }
+}

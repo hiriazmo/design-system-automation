@@ -1,0 +1,702 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #ffffff;
+            color: #333;
+            padding: 16px;
+            font-size: 12px;
+        }
+        .container { display: flex; flex-direction: column; gap: 14px; }
+        .header { text-align: center; border-bottom: 1px solid #e0e0e0; padding-bottom: 12px; }
+        .header h1 { font-size: 16px; font-weight: 600; margin-bottom: 4px; }
+        .header p { font-size: 11px; color: #666; }
+        .upload-section { display: flex; flex-direction: column; gap: 8px; }
+        .upload-section label { font-weight: 600; font-size: 12px; color: #333; }
+        #fileInput { display: none; }
+        .file-input-wrapper { display: flex; gap: 8px; }
+        .btn {
+            flex: 1; padding: 10px 12px; border: none; border-radius: 4px;
+            font-size: 12px; font-weight: 600; cursor: pointer; transition: all 0.2s;
+        }
+        .btn-primary { background: #0066ff; color: white; }
+        .btn-primary:hover { background: #0052cc; }
+        .btn-primary:disabled { background: #ccc; cursor: not-allowed; }
+        .btn-secondary { background: #f0f0f0; color: #333; border: 1px solid #ddd; }
+        .btn-secondary:hover { background: #e8e8e8; }
+        .file-name {
+            font-size: 11px; color: #666; padding: 8px; background: #f9f9f9;
+            border-radius: 4px; border: 1px dashed #ddd; text-align: center;
+        }
+        .file-name.loaded { background: #f0f7ff; border-color: #0066ff; color: #0066ff; }
+        .file-name.error { background: #fff0f0; border-color: #ff4444; color: #cc0000; }
+        .preview-section {
+            display: flex; flex-direction: column; gap: 8px;
+            max-height: 320px; overflow-y: auto;
+        }
+        .preview-section > label {
+            font-weight: 600; font-size: 12px; color: #333;
+            position: sticky; top: 0; background: white; padding: 4px 0; z-index: 1;
+        }
+        .token-group {
+            display: flex; flex-direction: column; gap: 4px; padding: 8px;
+            background: #f9f9f9; border-radius: 4px; border: 1px solid #e0e0e0;
+        }
+        .token-group-title {
+            font-weight: 600; font-size: 11px; color: #0066ff;
+            text-transform: uppercase; letter-spacing: 0.5px;
+            display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+        }
+        .token-type-badge {
+            font-size: 9px; padding: 2px 6px; background: #e0e0e0;
+            border-radius: 10px; color: #666; font-weight: 500; text-transform: none;
+        }
+        .token-type-badge.color { background: #ffe6f0; color: #cc0066; }
+        .token-type-badge.text { background: #e6f0ff; color: #0066cc; }
+        .token-type-badge.variable { background: #e6ffe6; color: #00cc66; }
+        .token-type-badge.effect { background: #f0e6ff; color: #6600cc; }
+        .format-dtcg { background: #e6ffe6; color: #006600; }
+        .format-legacy { background: #fff0e6; color: #cc6600; }
+        .token-item {
+            display: flex; align-items: center; gap: 8px; font-size: 11px;
+            padding: 3px 0; border-bottom: 1px solid #eee;
+        }
+        .token-item:last-child { border-bottom: none; }
+        .token-color {
+            width: 18px; height: 18px; border-radius: 3px;
+            border: 1px solid #ddd; flex-shrink: 0;
+        }
+        .token-name { flex: 1; font-weight: 500; word-break: break-word; }
+        .token-value {
+            color: #999; font-size: 10px; text-align: right;
+            max-width: 120px; overflow: hidden; text-overflow: ellipsis;
+        }
+        .progress-section { display: none; flex-direction: column; gap: 8px; }
+        .progress-section.active { display: flex; }
+        .progress-bar {
+            width: 100%; height: 6px; background: #e0e0e0;
+            border-radius: 3px; overflow: hidden;
+        }
+        .progress-fill {
+            height: 100%; background: #0066ff; width: 0%; transition: width 0.2s;
+        }
+        .progress-text { font-size: 11px; color: #666; text-align: center; }
+        .progress-detail { font-size: 10px; color: #999; text-align: center; }
+        .status-message {
+            padding: 8px 12px; border-radius: 4px; font-size: 11px;
+            text-align: center; display: none;
+        }
+        .status-message.success { display: block; background: #e6f7e6; color: #2d6d2d; border: 1px solid #b3e5b3; }
+        .status-message.error { display: block; background: #ffe6e6; color: #6d2d2d; border: 1px solid #e5b3b3; }
+        .status-message.warning { display: block; background: #fff7e6; color: #996600; border: 1px solid #e5d4b3; }
+        .empty-state { text-align: center; padding: 20px; color: #999; font-size: 11px; }
+        .action-section { display: flex; gap: 8px; margin-top: 4px; }
+        .action-section button { flex: 1; }
+        .info-box {
+            background: #f0f7ff; border: 1px solid #cce0ff;
+            border-radius: 4px; padding: 8px; font-size: 10px; color: #0066cc;
+        }
+        .info-box strong { display: block; margin-bottom: 4px; }
+        .format-detected {
+            font-size: 10px; color: #666; text-align: center;
+            padding: 4px; background: #f5f5f5; border-radius: 4px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🎨 Design Token Creator</h1>
+            <p>Upload design tokens JSON → Create Figma styles & variables</p>
+        </div>
+
+        <div class="upload-section">
+            <label>Step 1: Upload JSON File</label>
+            <div class="file-input-wrapper">
+                <input type="file" id="fileInput" accept=".json" />
+                <button class="btn btn-primary" onclick="document.getElementById('fileInput').click()">Choose File</button>
+                <button class="btn btn-secondary" onclick="pasteJSON()">Paste JSON</button>
+            </div>
+            <div class="file-name" id="fileName">No file selected</div>
+        </div>
+
+        <div class="format-detected" id="formatDetected" style="display: none;"></div>
+
+        <div class="preview-section" id="previewSection">
+            <label>Step 2: Preview Tokens</label>
+            <div class="empty-state">Upload a JSON file to see tokens</div>
+        </div>
+
+        <div class="info-box" id="infoBox" style="display: none;">
+            <strong>Will create:</strong>
+            <span id="infoText"></span>
+        </div>
+
+        <div class="progress-section" id="progressSection">
+            <label>Creating Styles & Variables...</label>
+            <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
+            <div class="progress-text" id="progressText">0 / 0</div>
+            <div class="progress-detail" id="progressDetail"></div>
+        </div>
+
+        <div class="status-message" id="statusMessage"></div>
+
+        <div class="action-section">
+            <button class="btn btn-primary" id="applyBtn" onclick="applyTokens()" disabled>Apply to Document</button>
+            <button class="btn btn-secondary" id="specBtn" onclick="createVisualSpec()" disabled>📄 Create Visual Spec</button>
+            <button class="btn btn-secondary" onclick="closePlugin()">Close</button>
+        </div>
+    </div>
+
+    <script>
+        var loadedTokens = null;
+
+        document.getElementById('fileInput').addEventListener('change', function(e) {
+            var file = e.target.files[0];
+            if (file) {
+                var reader = new FileReader();
+                reader.onload = function(event) {
+                    try {
+                        loadedTokens = JSON.parse(event.target.result);
+                        displayFileName(file.name);
+                        displayPreview(loadedTokens);
+                        document.getElementById('applyBtn').disabled = false;
+                        document.getElementById('specBtn').disabled = false;
+                    } catch (error) {
+                        showFileError('Invalid JSON: ' + error.message);
+                    }
+                };
+                reader.readAsText(file);
+            }
+        });
+
+        function pasteJSON() {
+            var jsonText = prompt('Paste your design tokens JSON:');
+            if (jsonText) {
+                try {
+                    loadedTokens = JSON.parse(jsonText);
+                    displayFileName('Pasted JSON');
+                    displayPreview(loadedTokens);
+                    document.getElementById('applyBtn').disabled = false;
+                    document.getElementById('specBtn').disabled = false;
+                } catch (error) {
+                    showFileError('Invalid JSON: ' + error.message);
+                }
+            }
+        }
+
+        function displayFileName(name) {
+            var el = document.getElementById('fileName');
+            el.textContent = '✓ ' + name;
+            el.className = 'file-name loaded';
+        }
+
+        function showFileError(message) {
+            var el = document.getElementById('fileName');
+            el.textContent = '✗ ' + message;
+            el.className = 'file-name error';
+        }
+
+        // Check if value is a color
+        function isColorValue(value) {
+            if (typeof value !== 'string') return false;
+            return /^#([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})$/.test(value);
+        }
+
+        // Check if value is spacing
+        function isSpacingValue(value) {
+            if (typeof value !== 'string') return false;
+            return /^-?\d+(\.\d+)?(px|rem|em|%)?$/.test(value);
+        }
+
+        // Check if DTCG format ($value, $type)
+        function isDTCGFormat(obj) {
+            if (!obj || typeof obj !== 'object') return false;
+            function check(o) {
+                if (!o || typeof o !== 'object') return false;
+                if (o['$value'] !== undefined || o['$type'] !== undefined) return true;
+                var keys = Object.keys(o);
+                for (var i = 0; i < keys.length; i++) {
+                    if (keys[i].charAt(0) !== '$' && check(o[keys[i]])) return true;
+                }
+                return false;
+            }
+            return check(obj);
+        }
+
+        // Recursively extract colors (supports DTCG and legacy formats)
+        function extractColorsForPreview(obj, prefix) {
+            prefix = prefix || '';
+            var results = [];
+            var keys = Object.keys(obj);
+
+            for (var i = 0; i < keys.length; i++) {
+                var key = keys[i];
+                // Skip DTCG meta properties
+                if (key.charAt(0) === '$') continue;
+
+                var value = obj[key];
+                var newKey = prefix ? prefix + '/' + key : key;
+
+                if (typeof value === 'string' && isColorValue(value)) {
+                    results.push({ name: newKey, value: value });
+                } else if (value && typeof value === 'object') {
+                    // DTCG format ($value with $type === 'color')
+                    if (value['$value'] && value['$type'] === 'color') {
+                        results.push({ name: newKey, value: value['$value'] });
+                    }
+                    // Legacy format (value property)
+                    else if (value.value && isColorValue(value.value)) {
+                        results.push({ name: newKey, value: value.value });
+                    }
+                    // Recurse (skip tokens)
+                    else if (!value['$type'] && !value.type) {
+                        var nested = extractColorsForPreview(value, newKey);
+                        for (var j = 0; j < nested.length; j++) {
+                            results.push(nested[j]);
+                        }
+                    }
+                }
+            }
+            return results;
+        }
+
+        // Extract spacing/dimension values (supports DTCG and legacy formats)
+        function extractSpacingForPreview(obj, prefix) {
+            prefix = prefix || '';
+            var results = [];
+            var keys = Object.keys(obj);
+
+            for (var i = 0; i < keys.length; i++) {
+                var key = keys[i];
+                // Skip DTCG meta properties
+                if (key.charAt(0) === '$') continue;
+
+                var value = obj[key];
+                var newKey = prefix ? prefix + '/' + key : key;
+
+                if (typeof value === 'string' && isSpacingValue(value)) {
+                    results.push({ name: newKey, value: value });
+                } else if (value && typeof value === 'object') {
+                    // DTCG format ($value with $type === 'dimension')
+                    if (value['$value'] !== undefined && value['$type'] === 'dimension') {
+                        results.push({ name: newKey, value: value['$value'] });
+                    }
+                    // Legacy format (value property)
+                    else if (value.value && (typeof value.value === 'string' || typeof value.value === 'number')) {
+                        results.push({ name: newKey, value: value.value });
+                    }
+                    // Recurse (skip tokens)
+                    else if (!value['$type'] && !value.type) {
+                        var nested = extractSpacingForPreview(value, newKey);
+                        for (var j = 0; j < nested.length; j++) {
+                            results.push(nested[j]);
+                        }
+                    }
+                }
+            }
+            return results;
+        }
+
+        // Extract shadow values for preview (DTCG and legacy formats)
+        function extractShadowsForPreview(obj, prefix) {
+            prefix = prefix || '';
+            var results = [];
+            var keys = Object.keys(obj);
+
+            for (var i = 0; i < keys.length; i++) {
+                var key = keys[i];
+                if (key.charAt(0) === '$') continue;
+
+                var value = obj[key];
+                var newKey = prefix ? prefix + '/' + key : key;
+
+                if (value && typeof value === 'object') {
+                    // DTCG format ($type === 'shadow')
+                    if (value['$type'] === 'shadow' && value['$value']) {
+                        var sv = value['$value'];
+                        results.push({
+                            name: newKey,
+                            value: (sv.offsetX || '0') + ' ' + (sv.offsetY || '0') + ' ' + (sv.blur || '0')
+                        });
+                    }
+                    // Legacy format (type === 'boxShadow')
+                    else if (value.type === 'boxShadow' && value.value) {
+                        var lv = value.value;
+                        results.push({
+                            name: newKey,
+                            value: (lv.x || '0') + ' ' + (lv.y || '0') + ' ' + (lv.blur || '0')
+                        });
+                    }
+                    // Recurse
+                    else if (!value['$type'] && !value.type) {
+                        var nested = extractShadowsForPreview(value, newKey);
+                        for (var j = 0; j < nested.length; j++) {
+                            results.push(nested[j]);
+                        }
+                    }
+                }
+            }
+            return results;
+        }
+
+        // Build typography preview (supports DTCG and legacy formats)
+        function buildTypographyPreview(typography, prefix) {
+            prefix = prefix || '';
+            var results = [];
+            if (!typography) return results;
+
+            // Check for separated format (fontSize as scale object)
+            if (typography.fontSize && typeof typography.fontSize === 'object' && !typography.fontSize['$value']) {
+                var fontSizes = typography.fontSize;
+                var lineHeights = typography.lineHeight || {};
+                var fontWeights = typography.fontWeight || {};
+
+                var keys = Object.keys(fontSizes);
+                for (var i = 0; i < keys.length; i++) {
+                    var name = keys[i];
+                    var size = fontSizes[name];
+                    var weight = '400';
+
+                    if (name.indexOf('display') > -1 || name.indexOf('heading') > -1) {
+                        weight = fontWeights.bold || fontWeights.semibold || '600';
+                    }
+
+                    results.push({
+                        name: name,
+                        fontSize: size,
+                        fontWeight: weight
+                    });
+                }
+                return results;
+            }
+
+            // Handle nested combined typography (DTCG and legacy)
+            var keys = Object.keys(typography);
+            for (var i = 0; i < keys.length; i++) {
+                var key = keys[i];
+                if (key.charAt(0) === '$') continue;
+                if (key === 'fontFamily' || key === 'fontSize' || key === 'fontWeight' || key === 'lineHeight') continue;
+
+                var value = typography[key];
+                var newKey = prefix ? prefix + '/' + key : key;
+
+                if (value && typeof value === 'object') {
+                    // DTCG format ($type === 'typography')
+                    if (value['$type'] === 'typography' && value['$value']) {
+                        var tv = value['$value'];
+                        results.push({
+                            name: newKey,
+                            fontSize: tv.fontSize || '16px',
+                            fontWeight: tv.fontWeight || '400'
+                        });
+                    }
+                    // Legacy format (type === 'typography')
+                    else if (value.type === 'typography' && value.value) {
+                        var lv = value.value;
+                        results.push({
+                            name: newKey,
+                            fontSize: lv.fontSize || '16px',
+                            fontWeight: lv.fontWeight || '400'
+                        });
+                    }
+                    // Recurse
+                    else if (!value['$type'] && !value.type) {
+                        var nested = buildTypographyPreview(value, newKey);
+                        for (var j = 0; j < nested.length; j++) {
+                            results.push(nested[j]);
+                        }
+                    }
+                }
+            }
+            return results;
+        }
+
+        function displayPreview(tokens) {
+            var previewSection = document.getElementById('previewSection');
+            previewSection.innerHTML = '<label>Step 2: Preview Tokens</label>';
+
+            // Detect format (DTCG vs legacy)
+            var useDTCG = isDTCGFormat(tokens);
+            var tokenRoot, formatName, formatClass;
+
+            if (useDTCG) {
+                // DTCG format - no wrapper, uses $value/$type
+                tokenRoot = tokens;
+                formatName = '✓ W3C DTCG Format (Standard)';
+                formatClass = 'format-detected format-dtcg';
+            } else if (tokens.tokens) {
+                tokenRoot = tokens.tokens;
+                formatName = 'Legacy: tokens.*';
+                formatClass = 'format-detected format-legacy';
+            } else if (tokens.global) {
+                tokenRoot = tokens.global;
+                formatName = 'Legacy: global.*';
+                formatClass = 'format-detected format-legacy';
+            } else {
+                tokenRoot = tokens;
+                formatName = 'Legacy: flat format';
+                formatClass = 'format-detected format-legacy';
+            }
+
+            var formatEl = document.getElementById('formatDetected');
+            formatEl.textContent = formatName;
+            formatEl.className = formatClass;
+            formatEl.style.display = 'block';
+
+            var stats = { colors: 0, typography: 0, spacing: 0, radius: 0, shadows: 0 };
+
+            // Colors (DTCG: 'color', legacy: 'colors')
+            var colorRoot = tokenRoot.colors || tokenRoot.color || null;
+            if (colorRoot) {
+                var colorTokens = extractColorsForPreview(colorRoot, '');
+                stats.colors = colorTokens.length;
+
+                if (colorTokens.length > 0) {
+                    var group = document.createElement('div');
+                    group.className = 'token-group';
+                    group.innerHTML = '<div class="token-group-title">Colors (' + colorTokens.length + ') <span class="token-type-badge color">→ Paint Styles</span></div>';
+
+                    for (var i = 0; i < Math.min(colorTokens.length, 15); i++) {
+                        var token = colorTokens[i];
+                        var item = document.createElement('div');
+                        item.className = 'token-item';
+                        item.innerHTML = '<div class="token-color" style="background: ' + token.value + '"></div>' +
+                            '<div class="token-name">' + token.name + '</div>' +
+                            '<div class="token-value">' + token.value + '</div>';
+                        group.appendChild(item);
+                    }
+                    if (colorTokens.length > 15) {
+                        var more = document.createElement('div');
+                        more.className = 'token-item';
+                        more.innerHTML = '<div class="token-name" style="color: #666;">... and ' + (colorTokens.length - 15) + ' more</div>';
+                        group.appendChild(more);
+                    }
+                    previewSection.appendChild(group);
+                }
+            }
+
+            // Typography (DTCG: 'font', legacy: 'typography')
+            var typoRoot = tokenRoot.typography || tokenRoot.font || null;
+            if (typoRoot) {
+                var typoTokens = buildTypographyPreview(typoRoot, '');
+                stats.typography = typoTokens.length;
+
+                if (typoTokens.length > 0) {
+                    var group = document.createElement('div');
+                    group.className = 'token-group';
+                    group.innerHTML = '<div class="token-group-title">Typography (' + typoTokens.length + ') <span class="token-type-badge text">→ Text Styles</span></div>';
+
+                    for (var i = 0; i < Math.min(typoTokens.length, 10); i++) {
+                        var token = typoTokens[i];
+                        var item = document.createElement('div');
+                        item.className = 'token-item';
+                        item.innerHTML = '<div class="token-name">' + token.name + '</div>' +
+                            '<div class="token-value">' + token.fontSize + ' / ' + token.fontWeight + '</div>';
+                        group.appendChild(item);
+                    }
+                    if (typoTokens.length > 10) {
+                        var more = document.createElement('div');
+                        more.className = 'token-item';
+                        more.innerHTML = '<div class="token-name" style="color: #666;">... and ' + (typoTokens.length - 10) + ' more</div>';
+                        group.appendChild(more);
+                    }
+                    previewSection.appendChild(group);
+                }
+            }
+
+            // Spacing (DTCG: 'space', legacy: 'spacing')
+            var spacingRoot = tokenRoot.spacing || tokenRoot.space || null;
+            if (spacingRoot) {
+                var spacingTokens = extractSpacingForPreview(spacingRoot, '');
+                stats.spacing = spacingTokens.length;
+
+                if (spacingTokens.length > 0) {
+                    var group = document.createElement('div');
+                    group.className = 'token-group';
+                    group.innerHTML = '<div class="token-group-title">Spacing (' + spacingTokens.length + ') <span class="token-type-badge variable">→ Variables</span></div>';
+
+                    for (var i = 0; i < Math.min(spacingTokens.length, 10); i++) {
+                        var token = spacingTokens[i];
+                        var item = document.createElement('div');
+                        item.className = 'token-item';
+                        item.innerHTML = '<div class="token-name">' + token.name + '</div>' +
+                            '<div class="token-value">' + token.value + '</div>';
+                        group.appendChild(item);
+                    }
+                    if (spacingTokens.length > 10) {
+                        var more = document.createElement('div');
+                        more.className = 'token-item';
+                        more.innerHTML = '<div class="token-name" style="color: #666;">... and ' + (spacingTokens.length - 10) + ' more</div>';
+                        group.appendChild(more);
+                    }
+                    previewSection.appendChild(group);
+                }
+            }
+
+            // Border Radius (DTCG: 'radius', legacy: 'borderRadius')
+            var radiusRoot = tokenRoot.borderRadius || tokenRoot.radius || null;
+            if (radiusRoot) {
+                var radiusTokens = extractSpacingForPreview(radiusRoot, '');
+                stats.radius = radiusTokens.length;
+
+                if (radiusTokens.length > 0) {
+                    var group = document.createElement('div');
+                    group.className = 'token-group';
+                    group.innerHTML = '<div class="token-group-title">Border Radius (' + radiusTokens.length + ') <span class="token-type-badge variable">→ Variables</span></div>';
+
+                    for (var i = 0; i < radiusTokens.length; i++) {
+                        var token = radiusTokens[i];
+                        var item = document.createElement('div');
+                        item.className = 'token-item';
+                        item.innerHTML = '<div class="token-name">' + token.name + '</div>' +
+                            '<div class="token-value">' + token.value + '</div>';
+                        group.appendChild(item);
+                    }
+                    previewSection.appendChild(group);
+                }
+            }
+
+            // Shadows (DTCG: 'shadow', legacy: 'shadows')
+            var shadowRoot = tokenRoot.shadows || tokenRoot.shadow || null;
+            if (shadowRoot) {
+                var shadowTokens = extractShadowsForPreview(shadowRoot, '');
+                stats.shadows = shadowTokens.length;
+
+                if (shadowTokens.length > 0) {
+                    var group = document.createElement('div');
+                    group.className = 'token-group';
+                    group.innerHTML = '<div class="token-group-title">Shadows (' + shadowTokens.length + ') <span class="token-type-badge effect">→ Effect Styles</span></div>';
+
+                    for (var i = 0; i < shadowTokens.length; i++) {
+                        var token = shadowTokens[i];
+                        var item = document.createElement('div');
+                        item.className = 'token-item';
+                        item.innerHTML = '<div class="token-name">' + token.name + '</div>' +
+                            '<div class="token-value">' + token.value + '</div>';
+                        group.appendChild(item);
+                    }
+                    previewSection.appendChild(group);
+                }
+            }
+
+            // Info box
+            var parts = [];
+            if (stats.colors > 0) parts.push(stats.colors + ' Paint Styles');
+            if (stats.typography > 0) parts.push(stats.typography + ' Text Styles');
+            if (stats.spacing > 0) parts.push(stats.spacing + ' Spacing Vars');
+            if (stats.radius > 0) parts.push(stats.radius + ' Radius Vars');
+            if (stats.shadows > 0) parts.push(stats.shadows + ' Effect Styles');
+
+            var infoBox = document.getElementById('infoBox');
+            var infoText = document.getElementById('infoText');
+            if (parts.length > 0) {
+                infoText.textContent = parts.join(' • ');
+                infoBox.style.display = 'block';
+            } else {
+                infoBox.style.display = 'none';
+            }
+        }
+
+        function applyTokens() {
+            if (!loadedTokens) {
+                showError('No tokens loaded');
+                return;
+            }
+
+            document.getElementById('progressSection').classList.add('active');
+            document.getElementById('applyBtn').disabled = true;
+            document.getElementById('statusMessage').className = 'status-message';
+
+            parent.postMessage({
+                pluginMessage: {
+                    type: 'create-styles',
+                    tokens: loadedTokens
+                }
+            }, '*');
+        }
+
+        function createVisualSpec() {
+            if (!loadedTokens) {
+                showError('No tokens loaded');
+                return;
+            }
+
+            document.getElementById('specBtn').disabled = true;
+            document.getElementById('statusMessage').className = 'status-message';
+            showWarning('Creating visual spec page...');
+
+            parent.postMessage({
+                pluginMessage: {
+                    type: 'create-visual-spec',
+                    tokens: loadedTokens
+                }
+            }, '*');
+        }
+
+        window.onmessage = function(event) {
+            var msg = event.data.pluginMessage;
+            if (!msg) return;
+
+            if (msg.type === 'progress') {
+                var percent = (msg.current / msg.total) * 100;
+                document.getElementById('progressFill').style.width = percent + '%';
+                document.getElementById('progressText').textContent = msg.current + ' / ' + msg.total;
+                if (msg.message) {
+                    document.getElementById('progressDetail').textContent = msg.message;
+                }
+            }
+
+            if (msg.type === 'complete') {
+                document.getElementById('progressSection').classList.remove('active');
+                document.getElementById('applyBtn').disabled = false;
+                
+                if (msg.errors && msg.errors.length > 0) {
+                    showWarning('Created ' + msg.created + ' items with ' + msg.errors.length + ' warnings');
+                    console.log('Warnings:', msg.errors);
+                } else {
+                    showSuccess('✓ Created ' + msg.created + ' styles & variables!');
+                }
+            }
+
+            if (msg.type === 'error') {
+                document.getElementById('progressSection').classList.remove('active');
+                document.getElementById('applyBtn').disabled = false;
+                document.getElementById('specBtn').disabled = false;
+                showError('Error: ' + msg.message);
+            }
+
+            if (msg.type === 'spec-complete') {
+                document.getElementById('specBtn').disabled = false;
+                showSuccess('✓ ' + msg.message + ' Check the new page in Figma!');
+            }
+        };
+
+        function showSuccess(message) {
+            var el = document.getElementById('statusMessage');
+            el.textContent = message;
+            el.className = 'status-message success';
+        }
+
+        function showWarning(message) {
+            var el = document.getElementById('statusMessage');
+            el.textContent = message;
+            el.className = 'status-message warning';
+        }
+
+        function showError(message) {
+            var el = document.getElementById('statusMessage');
+            el.textContent = message;
+            el.className = 'status-message error';
+        }
+
+        function closePlugin() {
+            parent.postMessage({ pluginMessage: { type: 'close' } }, '*');
+        }
+    </script>
+</body>
+</html>
