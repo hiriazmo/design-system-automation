@@ -1,15 +1,49 @@
-# Design System Extractor v2 — Project Context
+# Design System Extractor v3.1 — Project Context
 
 ## Overview
 
 A multi-agent system that extracts, analyzes, and recommends improvements for design systems from websites. The system operates in two stages:
 
-1. **Stage 1 (Deterministic)**: Extract CSS values → Normalize → Rule Engine analysis (free, no LLM)
-2. **Stage 2 (LLM-powered)**: Brand identification → Benchmark comparison → Best practices → Final synthesis
+1. **Stage 1 (Deterministic)**: Extract CSS values → Normalize → Rule Engine analysis → **Rule-Based Color Classification** (free, no LLM)
+2. **Stage 2 (LLM-powered, advisory only)**: Brand insights → Benchmark comparison → Best practices → Final synthesis
 
 ---
 
-## CURRENT STATUS: BROKEN — NEEDS RETHINK
+## v3.1 FIX: RULE-BASED COLOR NAMING (Feb 2026)
+
+### What Changed
+- **KILLED LLM color naming entirely.** New `core/color_classifier.py` handles all color naming with 100% deterministic rules.
+- **Aggressive deduplication**: Colors within RGB distance < 30 AND same category get merged (e.g., 13 text grays → 3)
+- **Capped categories**: brand (max 3), text (max 3), bg (max 3), border (max 3), feedback (max 4), palette (remaining)
+- **User-selectable naming convention**: semantic, tailwind, or material — chosen BEFORE export
+- **Preview before export**: User sees classification + decision log before committing
+- **Every decision logged**: `[DEDUP]`, `[CLASSIFY]`, `[CAP]`, `[NAME]` with evidence
+
+### How Classification Works (No LLM)
+```
+CSS Evidence → Category:
+  background-color on <button> + saturated + freq>5 → BRAND
+  color on <p>/<span> + low saturation → TEXT
+  background-color on <div>/<body> + neutral → BG
+  border-color + low saturation → BORDER
+  red hue + sat>0.6 + low freq → FEEDBACK (error)
+  everything else → PALETTE (named by hue.shade)
+```
+
+### What AURORA Does Now (Advisory Only)
+- Does NOT output naming_map
+- Provides brand insights, palette strategy, cohesion score
+- LLM reasoning is shown in logs but doesn't affect token names
+
+### Files Changed in v3.1
+- `core/color_classifier.py` — NEW: Rule-based classifier with dedup, caps, naming conventions
+- `app.py` — Export functions use classifier instead of LLM naming; convention picker in UI
+- `agents/llm_agents.py` — AURORA prompt updated to advisory-only
+- `CLAUDE.md` — This documentation
+
+---
+
+## PREVIOUS STATUS (v3.0 and earlier): BROKEN — RETHINK COMPLETED
 
 ### What's Wrong (observed from real site tests)
 

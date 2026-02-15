@@ -42,6 +42,7 @@ class AppState:
         self.mobile_normalized = None   # NormalizedTokens
         self.upgrade_recommendations = None  # UpgradeRecommendations
         self.selected_upgrades = {}  # User selections
+        self.color_classification = None  # ClassificationResult from rule-based classifier
         self.logs = []
     
     def log(self, message: str):
@@ -3101,7 +3102,31 @@ def _consolidate_colors(colors_dict: dict, overrides: dict, max_colors: int = 30
     return result
 
 
-def export_stage1_json():
+def preview_color_classification(convention: str = "semantic"):
+    """Preview color classification before export. 100% rule-based, no LLM."""
+    from core.color_classifier import classify_colors, generate_classification_preview
+
+    if not state.desktop_normalized or not state.desktop_normalized.colors:
+        return "⚠️ No colors extracted yet. Run Stage 1 extraction first."
+
+    result = classify_colors(
+        state.desktop_normalized.colors,
+        convention=convention or "semantic",
+        log_callback=state.log,
+    )
+
+    # Store for use by export functions
+    state.color_classification = result
+
+    preview = generate_classification_preview(result)
+
+    # Also append the decision log
+    log_section = "\n\n📋 DECISION LOG:\n" + "\n".join(result.log)
+
+    return preview + log_section
+
+
+def export_stage1_json(convention: str = "semantic"):
     """Export Stage 1 tokens (as-is extraction) to W3C DTCG format."""
     if not state.desktop_normalized:
         gr.Warning("No tokens extracted yet. Complete Stage 1 extraction first.")
@@ -3119,16 +3144,15 @@ def export_stage1_json():
     # COLORS — Nested structure with $value, $type, $description
     # =========================================================================
     if state.desktop_normalized and state.desktop_normalized.colors:
-        overrides = _get_semantic_color_overrides()
-        consolidated = _consolidate_colors(
-            state.desktop_normalized.colors, overrides, max_colors=30,
+        from core.color_classifier import classify_colors
+        classification = classify_colors(
+            state.desktop_normalized.colors,
+            convention=convention or "semantic",
+            log_callback=state.log,
         )
-        for flat_key, entry in consolidated.items():
-            # flat_key = "color.brand.primary"
-            source = entry.get("source", "extracted")
-            source_label = "LLM Semantic" if source == "semantic" else "Auto-Generated" if source == "detected" else "Extracted"
-            dtcg_token = _to_dtcg_token(entry["value"], "color", description=source_label)
-            _flat_key_to_nested(flat_key, dtcg_token, result)
+        for c in classification.colors:
+            dtcg_token = _to_dtcg_token(c.hex, "color", description=f"Rule-based: {c.category}")
+            _flat_key_to_nested(c.token_name, dtcg_token, result)
             token_count += 1
 
     # =========================================================================
@@ -3238,7 +3262,7 @@ def export_stage1_json():
     return json_str
 
 
-def export_tokens_json():
+def export_tokens_json(convention: str = "semantic"):
     """Export final tokens with selected upgrades applied - FLAT structure for Figma Tokens Studio."""
     if not state.desktop_normalized:
         gr.Warning("No tokens extracted yet. Complete Stage 1 extraction first.")
@@ -3280,34 +3304,37 @@ def export_tokens_json():
     primary_font = fonts_info.get("primary", "sans-serif")
     
     # =========================================================================
-    # COLORS — Consolidated with semantic naming + optional ramps
+    # COLORS — Rule-based classification + optional ramps
     # =========================================================================
     if state.desktop_normalized and state.desktop_normalized.colors:
         from core.color_utils import generate_color_ramp
+        from core.color_classifier import classify_colors
 
-        overrides = _get_semantic_color_overrides()
-        consolidated = _consolidate_colors(
-            state.desktop_normalized.colors, overrides, max_colors=30,
+        classification = classify_colors(
+            state.desktop_normalized.colors,
+            convention=convention or "semantic",
+            log_callback=state.log,
         )
 
-        for flat_key, entry in consolidated.items():
+        for c in classification.colors:
+            flat_key = c.token_name
             if apply_ramps:
                 try:
-                    ramp = generate_color_ramp(entry["value"])
+                    ramp = generate_color_ramp(c.hex)
                     shades = ["50", "100", "200", "300", "400", "500", "600", "700", "800", "900", "950"]
                     for i, shade in enumerate(shades):
                         if i < len(ramp):
                             shade_key = f"{flat_key}.{shade}"
-                            color_val = ramp[i] if isinstance(ramp[i], str) else ramp[i].get("hex", entry["value"])
+                            color_val = ramp[i] if isinstance(ramp[i], str) else ramp[i].get("hex", c.hex)
                             dtcg_token = _to_dtcg_token(color_val, "color")
                             _flat_key_to_nested(shade_key, dtcg_token, result)
                             token_count += 1
                 except (ValueError, KeyError, TypeError, IndexError):
-                    dtcg_token = _to_dtcg_token(entry["value"], "color")
+                    dtcg_token = _to_dtcg_token(c.hex, "color")
                     _flat_key_to_nested(flat_key, dtcg_token, result)
                     token_count += 1
             else:
-                dtcg_token = _to_dtcg_token(entry["value"], "color")
+                dtcg_token = _to_dtcg_token(c.hex, "color")
                 _flat_key_to_nested(flat_key, dtcg_token, result)
                 token_count += 1
     
@@ -4500,11 +4527,27 @@ def create_ui():
             gr.Markdown("Export your finalized design tokens as JSON, compatible with **Figma Tokens Studio**.",
                         elem_classes=["section-desc"])
             gr.Markdown("""
-- **Stage 1 JSON (As-Is):** Raw extracted tokens with no modifications — useful for archival or baseline comparison. Includes desktop and mobile viewport variants.
-- **Final JSON (Upgraded):** Tokens with your selected improvements applied (type scale, spacing grid, color ramps, and accepted LLM recommendations). **This is the recommended export.**
-
-Copy the JSON output below or save it as a `.json` file for import into Figma.
+- **Naming Convention:** Choose how colors are named in the export. Preview before exporting to verify.
+- **Stage 1 JSON (As-Is):** Raw extracted tokens — useful for archival or baseline comparison.
+- **Final JSON (Upgraded):** Tokens with your selected improvements applied. **Recommended export.**
             """, elem_classes=["section-desc"])
+
+            with gr.Row():
+                naming_convention = gr.Dropdown(
+                    choices=["semantic", "tailwind", "material"],
+                    value="semantic",
+                    label="🎨 Naming Convention",
+                    info="semantic = color.brand.primary | tailwind = brand-primary | material = color.brand.primary",
+                    scale=2,
+                )
+                preview_colors_btn = gr.Button("👁️ Preview Color Names", variant="secondary", scale=1)
+
+            color_preview_output = gr.Code(
+                label="Color Classification Preview (Rule-Based — No LLM)",
+                language="text",
+                lines=15,
+                visible=True,
+            )
 
             with gr.Row():
                 export_stage1_btn = gr.Button("📥 Export Stage 1 (As-Is)", variant="secondary")
@@ -4514,9 +4557,22 @@ Copy the JSON output below or save it as a `.json` file for import into Figma.
                         "Copy the contents or save as a `.json` file.*",
                         elem_classes=["section-desc"])
             export_output = gr.Code(label="Tokens JSON", language="json", lines=25)
-            
-            export_stage1_btn.click(export_stage1_json, outputs=[export_output])
-            export_final_btn.click(export_tokens_json, outputs=[export_output])
+
+            preview_colors_btn.click(
+                preview_color_classification,
+                inputs=[naming_convention],
+                outputs=[color_preview_output],
+            )
+            export_stage1_btn.click(
+                export_stage1_json,
+                inputs=[naming_convention],
+                outputs=[export_output],
+            )
+            export_final_btn.click(
+                export_tokens_json,
+                inputs=[naming_convention],
+                outputs=[export_output],
+            )
         
         # =================================================================
         # EVENT HANDLERS
