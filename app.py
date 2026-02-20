@@ -48,7 +48,7 @@ class AppState:
     def log(self, message: str):
         timestamp = datetime.now().strftime("%H:%M:%S")
         self.logs.append(f"[{timestamp}] {message}")
-        if len(self.logs) > 100:
+        if len(self.logs) > 500:
             self.logs.pop(0)
     
     def get_logs(self) -> str:
@@ -1159,13 +1159,15 @@ async def run_stage2_analysis_v2(
                         )
                         if pv_issues:
                             state.log("")
-                            state.log("   POST-VALIDATION: Issues found")
-                            for issue in pv_issues[:5]:
-                                state.log(f"      {issue}")
+                            state.log(f"   POST-VALIDATION: {len(pv_issues)} issues found")
+                            for issue in pv_issues[:10]:
+                                state.log(f"      ├─ {issue}")
+                            if len(pv_issues) > 10:
+                                state.log(f"      └─ ... and {len(pv_issues) - 10} more")
                         else:
-                            state.log("   POST-VALIDATION: All checks passed")
+                            state.log("   POST-VALIDATION: All checks passed ✅")
                     except Exception as pv_err:
-                        state.log(f"   POST-VALIDATION error: {str(pv_err)[:80]}")
+                        state.log(f"   POST-VALIDATION error: {str(pv_err)}")
 
             # Create fallback synthesis if needed
             if not final_synthesis:
@@ -4303,8 +4305,8 @@ def create_ui():
                             "Scroll through to see detailed statistics and individual agent outputs.*",
                             elem_classes=["section-desc"])
                 stage2_log = gr.Textbox(
-                    label="Log", 
-                    lines=20, 
+                    label="📋 Analysis Log (full step-by-step reasoning)",
+                    lines=30,
                     interactive=False,
                     elem_classes=["log-container"]
                 )

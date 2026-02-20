@@ -988,7 +988,19 @@ def run_rule_engine(
     log("   📐 TYPE SCALE ANALYSIS")
     log("   " + "─" * 40)
     typography = analyze_type_scale(typography_tokens)
-    
+
+    # Step-by-step reasoning
+    if typography.sizes_px and len(typography.sizes_px) >= 2:
+        sizes = sorted(typography.sizes_px)
+        log(f"   │  Step 1: Found {len(sizes)} font sizes: {sizes}")
+        if len(sizes) >= 2:
+            ratios = [round(sizes[i+1]/sizes[i], 3) for i in range(len(sizes)-1) if sizes[i] > 0]
+            log(f"   │  Step 2: Computed ratios between consecutive sizes: {ratios[:8]}{'...' if len(ratios) > 8 else ''}")
+            if ratios:
+                avg_ratio = sum(ratios) / len(ratios)
+                log(f"   │  Step 3: Average ratio = {avg_ratio:.3f}, variance = {typography.variance:.3f}")
+                log(f"   │  Step 4: {'Variance ≤ 0.15 → consistent ✅' if typography.is_consistent else f'Variance {typography.variance:.3f} > 0.15 → inconsistent ⚠️'}")
+
     consistency_icon = "✅" if typography.is_consistent else "⚠️"
     log(f"   ├─ Detected Ratio: {typography.detected_ratio:.3f}")
     log(f"   ├─ Closest Standard: {typography.scale_name} ({typography.closest_standard_ratio})")
@@ -1003,14 +1015,23 @@ def run_rule_engine(
     log("   ♿ ACCESSIBILITY CHECK (WCAG AA/AAA)")
     log("   " + "─" * 40)
     accessibility = analyze_accessibility(color_tokens, fg_bg_pairs=fg_bg_pairs)
-    
+
     # Separate individual-color failures from real FG/BG pair failures
     pair_failures = [a for a in accessibility if not a.passes_aa_normal and a.name.startswith("fg:")]
     color_only_failures = [a for a in accessibility if not a.passes_aa_normal and not a.name.startswith("fg:")]
     failures = [a for a in accessibility if not a.passes_aa_normal]
     passes = len(accessibility) - len(failures)
 
+    # Step-by-step reasoning
     pair_count = len(fg_bg_pairs) if fg_bg_pairs else 0
+    log(f"   │  Step 1: Testing each color against white (#fff) and black (#000)")
+    log(f"   │  Step 2: WCAG AA requires ≥4.5:1 for normal text, ≥3.0:1 for large text")
+    log(f"   │  Step 3: A color passes if it achieves ≥4.5:1 against EITHER white or black")
+    if pair_count > 0:
+        log(f"   │  Step 4: Also testing {pair_count} real foreground/background pairs from the page")
+    pass_rate = round(passes / max(len(accessibility), 1) * 100)
+    log(f"   │  Result: {passes}/{len(accessibility)} pass ({pass_rate}%)")
+
     log(f"   ├─ Colors Analyzed: {len(accessibility)}")
     log(f"   ├─ FG/BG Pairs Checked: {pair_count}")
     log(f"   ├─ AA Pass: {passes} ✅")
@@ -1020,21 +1041,21 @@ def run_rule_engine(
     if color_only_failures:
         log("   │")
         log("   │  ⚠️  FAILING COLORS (vs white/black):")
-        for i, f in enumerate(color_only_failures[:5]):
+        for i, f in enumerate(color_only_failures[:8]):
             fix_info = f" → 💡 Fix: {f.suggested_fix} ({f.suggested_fix_contrast:.1f}:1)" if f.suggested_fix else ""
-            log(f"   │  ├─ {f.name}: {f.hex_color} ({f.contrast_on_white:.1f}:1 on white){fix_info}")
-        if len(color_only_failures) > 5:
-            log(f"   │  └─ ... and {len(color_only_failures) - 5} more")
+            log(f"   │  ├─ {f.name}: {f.hex_color} (white:{f.contrast_on_white:.1f}:1, black:{f.contrast_on_black:.1f}:1){fix_info}")
+        if len(color_only_failures) > 8:
+            log(f"   │  └─ ... and {len(color_only_failures) - 8} more")
 
     if pair_failures:
         log("   │")
         log("   │  ❌ FAILING FG/BG PAIRS (actual on-page combinations):")
-        for i, f in enumerate(pair_failures[:5]):
+        for i, f in enumerate(pair_failures[:8]):
             fix_info = f" → 💡 Fix: {f.suggested_fix} ({f.suggested_fix_contrast:.1f}:1)" if f.suggested_fix else ""
             log(f"   │  ├─ {f.name}{fix_info}")
-        if len(pair_failures) > 5:
-            log(f"   │  └─ ... and {len(pair_failures) - 5} more")
-    
+        if len(pair_failures) > 8:
+            log(f"   │  └─ ... and {len(pair_failures) - 8} more")
+
     log("")
     
     # ─────────────────────────────────────────────────────────────
@@ -1043,15 +1064,24 @@ def run_rule_engine(
     log("   📏 SPACING GRID ANALYSIS")
     log("   " + "─" * 40)
     spacing = analyze_spacing_grid(spacing_tokens)
-    
+
+    # Step-by-step reasoning
+    log(f"   │  Step 1: Extracted all spacing values (margin, padding, gap)")
+    log(f"   │  Step 2: Detected base unit via GCD: {spacing.detected_base}px")
+    aligned_count = round(spacing.alignment_percentage / 100 * max(len(spacing_tokens), 1))
+    total = max(len(spacing_tokens), 1)
+    log(f"   │  Step 3: Checking divisibility: {aligned_count}/{total} values are multiples of {spacing.detected_base}px")
+    if spacing.misaligned_values:
+        log(f"   │  Step 4: Off-grid values: {spacing.misaligned_values[:10]}{'...' if len(spacing.misaligned_values) > 10 else ''}")
+
     alignment_icon = "✅" if spacing.is_aligned else "⚠️"
     log(f"   ├─ Detected Base: {spacing.detected_base}px")
     log(f"   ├─ Grid Aligned: {alignment_icon} {spacing.alignment_percentage:.0f}%")
-    
+
     if spacing.misaligned_values:
-        log(f"   ├─ Misaligned Values: {spacing.misaligned_values[:8]}{'...' if len(spacing.misaligned_values) > 8 else ''}")
-    
-    log(f"   ├─ Suggested Scale: {spacing.suggested_scale[:10]}...")
+        log(f"   ├─ Misaligned Values: {spacing.misaligned_values[:10]}{'...' if len(spacing.misaligned_values) > 10 else ''}")
+
+    log(f"   ├─ Suggested Scale: {spacing.suggested_scale[:12]}{'...' if len(spacing.suggested_scale) > 12 else ''}")
     log(f"   └─ 💡 Recommendation: {spacing.recommendation}px ({spacing.recommendation_reason})")
     log("")
     
@@ -1061,16 +1091,33 @@ def run_rule_engine(
     log("   🎨 COLOR PALETTE STATISTICS")
     log("   " + "─" * 40)
     color_stats = analyze_color_statistics(color_tokens)
-    
+
+    # Step-by-step reasoning
+    log(f"   │  Step 1: Counted {color_stats.total_count} total color tokens from extraction")
+    log(f"   │  Step 2: After exact-hex dedup: {color_stats.unique_count} unique colors")
+    if color_stats.duplicate_count > 0:
+        log(f"   │  Step 3: Found {color_stats.duplicate_count} exact duplicates (same hex, different usage)")
+    if len(color_stats.near_duplicates) > 0:
+        log(f"   │  Step 4: Found {len(color_stats.near_duplicates)} near-duplicate pairs (RGB distance < 10)")
+        for nd in color_stats.near_duplicates[:3]:
+            if isinstance(nd, (tuple, list)) and len(nd) >= 2:
+                log(f"   │     └─ {nd[0]} ≈ {nd[1]}")
+    if color_stats.unique_count > 30:
+        log(f"   │  ⚠️ {color_stats.unique_count} unique colors is high — most design systems use 15-25")
+    elif color_stats.unique_count < 8:
+        log(f"   │  ⚠️ Only {color_stats.unique_count} unique colors — may need more semantic variety")
+    else:
+        log(f"   │  ✅ {color_stats.unique_count} unique colors — reasonable palette size")
+
     dup_icon = "⚠️" if color_stats.duplicate_count > 10 else "✅"
     unique_icon = "⚠️" if color_stats.unique_count > 30 else "✅"
-    
+
     log(f"   ├─ Total Colors: {color_stats.total_count}")
     log(f"   ├─ Unique Colors: {color_stats.unique_count} {unique_icon}")
     log(f"   ├─ Exact Duplicates: {color_stats.duplicate_count} {dup_icon}")
     log(f"   ├─ Near-Duplicates: {len(color_stats.near_duplicates)}")
     log(f"   ├─ Grays: {color_stats.gray_count} | Saturated: {color_stats.saturated_count}")
-    log(f"   └─ Hue Distribution: {dict(list(color_stats.hue_distribution.items())[:5])}...")
+    log(f"   └─ Hue Distribution: {dict(list(color_stats.hue_distribution.items())[:7])}{'...' if len(color_stats.hue_distribution) > 7 else ''}")
     log("")
 
     # ─────────────────────────────────────────────────────────────
@@ -1080,8 +1127,25 @@ def run_rule_engine(
     if radius_result.tier_count > 0:
         log("   🔘 RADIUS GRID ANALYSIS")
         log("   " + "─" * 40)
+        # Step-by-step reasoning
+        log(f"   │  Step 1: Found {radius_result.tier_count} unique radius values: {radius_result.values_px[:10]}{'...' if len(radius_result.values_px) > 10 else ''}")
+        log(f"   │  Step 2: Checking base-4 alignment: {radius_result.base_4_aligned}/{radius_result.tier_count} values divisible by 4")
+        log(f"   │  Step 3: Checking base-8 alignment: {radius_result.base_8_aligned}/{radius_result.tier_count} values divisible by 8")
+        grid_choice = "base-4" if radius_result.base_4_aligned >= radius_result.base_8_aligned else "base-8"
+        log(f"   │  Step 4: Best fit grid: {grid_choice} ({radius_result.alignment_pct:.0f}% aligned)")
+        if radius_result.has_full:
+            log(f"   │  Step 5: Full radius (9999px/50%) detected — used for pills/circles ✅")
+        strategy_explanation = {
+            "tight": "small range (1-8px), subtle rounding",
+            "moderate": "medium range, balanced approach",
+            "expressive": "wide range including large radii, expressive design",
+            "mixed": "inconsistent strategy, values don't follow clear pattern",
+        }
+        strat_desc = strategy_explanation.get(radius_result.strategy, radius_result.strategy)
+        log(f"   │  Strategy: {radius_result.strategy} — {strat_desc}")
+
         align_icon = "✅" if radius_result.alignment_pct >= 80 else "⚠️"
-        log(f"   ├─ Tiers: {radius_result.tier_count} | Values: {radius_result.values_px[:8]}")
+        log(f"   ├─ Tiers: {radius_result.tier_count} | Values: {radius_result.values_px[:10]}")
         log(f"   ├─ Grid: base-{radius_result.grid_base} | Aligned: {align_icon} {radius_result.alignment_pct:.0f}%")
         log(f"   ├─ Strategy: {radius_result.strategy} | Has full: {radius_result.has_full}")
         log(f"   └─ Base-4: {radius_result.base_4_aligned}/{radius_result.tier_count} | Base-8: {radius_result.base_8_aligned}/{radius_result.tier_count}")
@@ -1091,16 +1155,66 @@ def run_rule_engine(
     # v3: Shadow Elevation Analysis
     # ─────────────────────────────────────────────────────────────
     shadow_result = analyze_shadow_elevation(shadow_tokens or {})
+    log("   🌗 SHADOW ELEVATION ANALYSIS")
+    log("   " + "─" * 40)
     if shadow_result.level_count > 0:
-        log("   🌗 SHADOW ELEVATION ANALYSIS")
-        log("   " + "─" * 40)
+        # Step-by-step reasoning
+        log(f"   │  Step 1: Found {shadow_result.level_count} shadow definitions")
+        log(f"   │  Step 2: Sorted by blur radius: {shadow_result.blur_values}")
+        if shadow_result.is_monotonic:
+            log(f"   │  Step 3: Blur values increase monotonically ✅ (proper elevation hierarchy)")
+        else:
+            log(f"   │  Step 3: Blur values are NOT monotonic ⚠️ (shadows don't form proper hierarchy)")
+        log(f"   │  Step 4: Shadow colors {'are consistent ✅' if shadow_result.color_consistent else 'vary ⚠️ — should use same base color with different alpha'}")
+
         mono_icon = "✅" if shadow_result.is_monotonic else "⚠️"
         color_icon = "✅" if shadow_result.color_consistent else "⚠️"
         log(f"   ├─ Levels: {shadow_result.level_count} | Blur: {shadow_result.blur_values}")
         log(f"   ├─ Monotonic Blur: {mono_icon} {'Yes' if shadow_result.is_monotonic else 'No — progression is non-linear'}")
         log(f"   ├─ Color Consistent: {color_icon} {'Yes' if shadow_result.color_consistent else 'No — mixed shadow colors'}")
-        log(f"   └─ Verdict: {shadow_result.elevation_verdict}")
-        log("")
+        log(f"   ├─ Verdict: {shadow_result.elevation_verdict}")
+
+        # Specific recommendations for insufficient levels
+        if shadow_result.level_count < 4:
+            log(f"   │")
+            log(f"   │  ⚠️  INSUFFICIENT SHADOW LEVELS ({shadow_result.level_count} found, 4-6 recommended)")
+            log(f"   │  Industry standard elevation systems:")
+            log(f"   │  ├─ Material Design: 6 levels (0dp–24dp)")
+            log(f"   │  ├─ Tailwind CSS: 6 levels (sm, DEFAULT, md, lg, xl, 2xl)")
+            log(f"   │  ├─ Shopify Polaris: 5 levels (transparent–500)")
+            log(f"   │  ├─ IBM Carbon: 4 levels (sm, md, lg, xl)")
+            log(f"   │  └─ Chakra UI: 6 levels (xs, sm, md, lg, xl, 2xl)")
+            log(f"   │")
+            log(f"   │  💡 Recommendation: Add {4 - shadow_result.level_count} more shadow levels for a complete elevation system.")
+            log(f"   │  Suggested additions (blur values):")
+            # Generate suggested blur values based on what exists
+            existing = shadow_result.blur_values
+            if len(existing) == 1:
+                suggested = [round(existing[0] * 0.5, 1), round(existing[0] * 2, 1), round(existing[0] * 4, 1)]
+                log(f"   │  ├─ xs: {suggested[0]}px blur (subtle)")
+                log(f"   │  ├─ md: {suggested[1]}px blur (cards/dropdowns)")
+                log(f"   │  └─ lg: {suggested[2]}px blur (modals/overlays)")
+            elif len(existing) == 2:
+                mid = round((existing[0] + existing[1]) / 2, 1)
+                large = round(existing[1] * 2, 1)
+                log(f"   │  ├─ md: {mid}px blur (between existing levels)")
+                log(f"   │  └─ lg: {large}px blur (modals/overlays)")
+            elif len(existing) == 3:
+                large = round(existing[-1] * 1.5, 1)
+                log(f"   │  └─ xl: {large}px blur (maximum elevation)")
+        elif not shadow_result.is_monotonic:
+            log(f"   │")
+            log(f"   │  💡 Recommendation: Re-order shadows so blur increases with elevation level.")
+            log(f"   │  Current blur order: {shadow_result.blur_values}")
+            log(f"   │  Expected: monotonically increasing (e.g., 2→4→8→16→24)")
+
+        log(f"   └─ Score Impact: {'10/10 (good)' if shadow_result.elevation_verdict == 'good' else '5/10 (partial)' if shadow_result.level_count >= 3 else '2/10 (insufficient)'}")
+    else:
+        log(f"   │  No shadow tokens found in extraction.")
+        log(f"   │  ⚠️  Most design systems define 4-6 shadow levels for elevation hierarchy.")
+        log(f"   │  This site may use flat design or shadows weren't captured.")
+        log(f"   └─ Score Impact: 2/10 (no shadows)")
+    log("")
 
     # ─────────────────────────────────────────────────────────────
     # Calculate Summary Scores
@@ -1119,6 +1233,13 @@ def run_rule_engine(
     log("   " + "─" * 40)
     log(f"   RULE ENGINE SUMMARY")
     log(f"   ├─ Consistency Score: {consistency_score}/100")
+    log(f"   │  Breakdown:")
+    log(f"   │  ├─ Type Scale:    {type_score:.0f}/20 {'✅' if type_score >= 15 else '⚠️'}")
+    log(f"   │  ├─ Accessibility: {aa_score:.0f}/20 {'✅' if aa_score >= 15 else '⚠️' if aa_score >= 10 else '❌'}")
+    log(f"   │  ├─ Spacing Grid:  {spacing_score:.0f}/20 {'✅' if spacing_score >= 15 else '⚠️'}")
+    log(f"   │  ├─ Color Palette: {color_score:.0f}/20 {'✅' if color_score >= 15 else '⚠️'}")
+    log(f"   │  ├─ Radius:        {radius_score:.0f}/10 {'✅' if radius_score >= 7 else '⚠️'}")
+    log(f"   │  └─ Shadows:       {shadow_score:.0f}/10 {'✅' if shadow_score >= 7 else '⚠️'}")
     log(f"   ├─ AA Failures: {len(failures)}")
     log(f"   ├─ Radius: {radius_result.tier_count} tiers ({radius_result.strategy})")
     log(f"   ├─ Shadows: {shadow_result.level_count} levels ({shadow_result.elevation_verdict})")

@@ -272,15 +272,30 @@ def _fmt_shadows(tokens: dict, limit: int = 10) -> str:
 
 
 def _log_reasoning(steps: list, log_fn: Callable):
-    """Log ReAct reasoning steps with icons."""
+    """Log ReAct reasoning steps with full content (no truncation)."""
     icons = {"THINK": "🧠", "ACT": "⚡", "OBSERVE": "👁️", "VERIFY": "✅"}
     for step in (steps or []):
         if isinstance(step, dict):
             st = step.get("step", "?")
             area = step.get("area", "")
-            content = step.get("content", "")[:90]
+            content = step.get("content", "")
             icon = icons.get(st, "📝")
-            log_fn(f"   {icon} [{area}] {content}")
+            # Show full reasoning — wrap long lines for readability
+            if len(content) > 120:
+                log_fn(f"   {icon} [{st}] {area}:")
+                # Word-wrap at ~100 chars per line
+                words = content.split()
+                line = "      "
+                for word in words:
+                    if len(line) + len(word) + 1 > 105:
+                        log_fn(line)
+                        line = "      " + word
+                    else:
+                        line = line + " " + word if line.strip() else "      " + word
+                if line.strip():
+                    log_fn(line)
+            else:
+                log_fn(f"   {icon} [{st}] {area}: {content}")
 
 
 def _extract_hexes(tokens: dict) -> list:
@@ -448,10 +463,10 @@ Use ReAct for each area. Name EVERY color in naming_map."""
             log(f"   ├─ Brand Primary: {result.brand_primary.get('color', '?')} ({result.brand_primary.get('confidence', '?')})")
             log(f"   ├─ Palette: {result.palette_strategy} · Cohesion: {result.cohesion_score}/10")
             log(f"   ├─ Colors Named: {len(result.naming_map)}/{len(input_hexes)}")
-            log(f"   ├─ Typography: {(result.typography_notes or 'N/A')[:60]}")
-            log(f"   ├─ Spacing: {(result.spacing_notes or 'N/A')[:60]}")
-            log(f"   ├─ Radius: {(result.radius_notes or 'N/A')[:60]}")
-            log(f"   ├─ Shadows: {(result.shadow_notes or 'N/A')[:60]}")
+            log(f"   ├─ Typography: {result.typography_notes or 'N/A'}")
+            log(f"   ├─ Spacing: {result.spacing_notes or 'N/A'}")
+            log(f"   ├─ Radius: {result.radius_notes or 'N/A'}")
+            log(f"   ├─ Shadows: {result.shadow_notes or 'N/A'}")
             log(f"   └─ Critic: {'✅ PASSED' if result.validation_passed else '⚠️ FALLBACK'}")
             return result
 
@@ -1069,7 +1084,7 @@ Evaluate from TWO perspectives (Tree of Thought). Choose one. Recommend for ALL 
             log(f"   ├─ Perspective A: {pa}/100")
             log(f"   ├─ Perspective B: {pb}/100")
             log(f"   ├─ Chosen: {result.chosen_perspective}")
-            log(f"   ├─ Why: {(result.choice_reasoning or 'N/A')[:80]}")
+            log(f"   ├─ Why: {result.choice_reasoning or 'N/A'}")
             log(f"   ├─ Final Score: {result.scores.get('overall', '?')}/100" if result.scores else "   ├─ Scores: N/A")
             log(f"   ├─ Actions: {len(result.top_3_actions)} | Color Recs: {len(result.color_recommendations)}")
             log(f"   ├─ Typography: {_s(result.type_scale_recommendation)}")
