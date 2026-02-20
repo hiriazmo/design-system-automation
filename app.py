@@ -1435,11 +1435,11 @@ async def run_stage2_analysis_v2(
             state.log(f"   ⚠️ Formatting failed: {str(format_err)[:100]}")
             import traceback
             state.log(traceback.format_exc()[:500])
-            # Return minimal results (must match 16 outputs)
+            # Return minimal results (must match 18 outputs)
             return (
                 f"⚠️ Analysis completed with formatting errors: {str(format_err)[:50]}",
                 state.get_logs(),
-                "*Benchmark comparison unavailable*",
+                "",  # benchmark_html
                 "<div class='placeholder-msg'>Scores unavailable</div>",
                 "<div class='placeholder-msg'>Actions unavailable</div>",
                 [],
@@ -1454,6 +1454,7 @@ async def run_stage2_analysis_v2(
                 "*Formatting error - radius tokens unavailable*",  # radius_md
                 "*Formatting error - shadow tokens unavailable*",  # shadows_md
                 "⚠️ Color preview unavailable due to formatting errors.",  # auto_color_preview
+                "",  # asis_tobe_html
             )
         
         # Auto-generate color classification preview
@@ -1464,6 +1465,51 @@ async def run_stage2_analysis_v2(
         except Exception as cp_err:
             state.log(f"   ⚠️ Auto color preview failed: {str(cp_err)}")
             auto_color_preview = "⚠️ Color preview unavailable — click 'Preview Color Names' button to generate."
+
+        # Build As-Is → To-Be transformation summary
+        asis_tobe_html = ""
+        try:
+            cards = []
+            # Type Scale
+            detected_ratio = f"{rule_results.typography.detected_ratio:.2f}" if rule_results else "?"
+            rec_ratio = "1.25"
+            rec_name = "Major Third"
+            if final_synthesis and final_synthesis.type_scale_recommendation:
+                rec_ratio = str(final_synthesis.type_scale_recommendation.get("recommended_ratio", "1.25"))
+                rec_name = final_synthesis.type_scale_recommendation.get("name", "Major Third")
+            cards.append(_render_as_is_to_be(
+                "Type Scale", detected_ratio,
+                f"{rule_results.typography.scale_name if rule_results else '?'} • Variance: {rule_results.typography.variance:.2f}" if rule_results else "",
+                rec_ratio, rec_name, icon="📐"
+            ))
+            # Spacing
+            detected_base = f"{rule_results.spacing.detected_base}px" if rule_results else "?"
+            alignment = f"{rule_results.spacing.alignment_percentage:.0f}% aligned" if rule_results else ""
+            cards.append(_render_as_is_to_be(
+                "Spacing Grid", detected_base, alignment,
+                "8px", "Industry standard (Material, Tailwind)", icon="📏"
+            ))
+            # Colors
+            color_count = str(rule_results.color_stats.unique_count) if rule_results else "?"
+            aa_fails = rule_results.aa_failures if rule_results else 0
+            cards.append(_render_as_is_to_be(
+                "Colors", f"{color_count} unique",
+                f"{aa_fails} fail AA compliance" if aa_fails else "All pass AA",
+                f"~15 semantic" if int(color_count) > 20 else color_count,
+                "0 AA failures" if aa_fails else "All pass ✓", icon="🎨"
+            ))
+            # Shadows
+            shadow_count = 0
+            if state.desktop_normalized:
+                shadow_count = len(getattr(state.desktop_normalized, 'shadows', {}))
+            cards.append(_render_as_is_to_be(
+                "Shadows", f"{shadow_count} levels",
+                "Elevation tokens" if shadow_count > 0 else "No shadows found",
+                "5 levels", "xs → sm → md → lg → xl", icon="🌫️"
+            ))
+            asis_tobe_html = "".join(cards)
+        except Exception:
+            asis_tobe_html = ""
 
         progress(0.95, desc="✅ Complete!")
 
@@ -1496,7 +1542,7 @@ async def run_stage2_analysis_v2(
         state.log(f"   💰 TOTAL COST: ~$0.003")
         state.log(f"   ⏱️  COMPLETED: {datetime.now().strftime('%H:%M:%S')}")
         state.log("═" * 60)
-        
+
         return (
             status_md,
             state.get_logs(),
@@ -1515,6 +1561,7 @@ async def run_stage2_analysis_v2(
             radius_md,
             shadows_md,
             auto_color_preview,
+            asis_tobe_html,
         )
 
     except Exception as e:
@@ -1625,11 +1672,11 @@ def create_fallback_synthesis(rule_results, benchmark_comparisons, brand_result,
 
 
 def create_stage2_error_response(error_msg: str):
-    """Create error response tuple for Stage 2 (must match 17 outputs)."""
+    """Create error response tuple for Stage 2 (must match 18 outputs)."""
     return (
         error_msg,
         state.get_logs(),
-        "",  # benchmark_md
+        "",  # benchmark_html
         f"<div class='placeholder-msg'>{error_msg}</div>",  # scores_html
         "",  # actions_html
         [],  # color_recs_table
@@ -1644,6 +1691,7 @@ def create_stage2_error_response(error_msg: str):
         "*Run analysis to see radius tokens*",  # radius_md
         "*Run analysis to see shadow tokens*",  # shadows_md
         "",  # auto_color_preview
+        "",  # asis_tobe_html
     )
 
 
@@ -1686,88 +1734,8 @@ def format_stage2_status_v2(rule_results, final_synthesis, best_practices) -> st
 
 
 def format_benchmark_comparison_v2(benchmark_comparisons, benchmark_advice) -> str:
-    """Format benchmark comparison results — ALL 6 categories."""
-
-    if not benchmark_comparisons:
-        return "*No benchmark comparison available*"
-
-    lines = []
-    lines.append("## 📊 Benchmark Comparison (6 Categories)")
-    lines.append("")
-
-    # Recommended benchmark
-    if benchmark_advice and benchmark_advice.recommended_benchmark_name:
-        lines.append(f"### 🏆 Recommended: {benchmark_advice.recommended_benchmark_name}")
-        if benchmark_advice.reasoning:
-            lines.append(f"*{benchmark_advice.reasoning}*")
-        lines.append("")
-
-    # Full comparison table with all 6 categories
-    lines.append("### 📈 Similarity Ranking")
-    lines.append("")
-    lines.append("| Rank | Design System | Overall | Type | Spacing | Colors | Radius | Shadows |")
-    lines.append("|------|---------------|---------|------|---------|--------|--------|---------|")
-
-    medals = ["🥇", "🥈", "🥉"]
-    for i, c in enumerate(benchmark_comparisons[:5]):
-        medal = medals[i] if i < 3 else str(i+1)
-        b = c.benchmark
-
-        def pct_icon(pct):
-            if pct >= 80: return f"✅ {pct:.0f}%"
-            elif pct >= 50: return f"🟡 {pct:.0f}%"
-            else: return f"🔴 {pct:.0f}%"
-
-        lines.append(
-            f"| {medal} | {b.icon} {b.short_name} | **{c.overall_match_pct:.0f}%** | "
-            f"{pct_icon(c.type_match_pct)} | {pct_icon(c.spacing_match_pct)} | "
-            f"{pct_icon(c.color_match_pct)} | {pct_icon(c.radius_match_pct)} | "
-            f"{pct_icon(c.shadow_match_pct)} |"
-        )
-
-    lines.append("")
-
-    # Detailed per-category comparison for top benchmark
-    if benchmark_comparisons:
-        top = benchmark_comparisons[0]
-        b = top.benchmark
-        lines.append(f"### 🔍 Detailed: Your Site vs {b.icon} {b.short_name}")
-        lines.append("")
-        lines.append("| Category | Your Value | Benchmark | Gap | Match |")
-        lines.append("|----------|-----------|-----------|-----|-------|")
-        lines.append(f"| **Typography** | ratio {top.type_ratio_diff + b.typography.get('scale_ratio', 1.25):.2f} | ratio {b.typography.get('scale_ratio', '?')} | diff {top.type_ratio_diff:.2f} | {top.type_match_pct:.0f}% |")
-        lines.append(f"| **Base Size** | {top.base_size_diff + b.typography.get('base_size', 16)}px | {b.typography.get('base_size', '?')}px | diff {top.base_size_diff}px | — |")
-        lines.append(f"| **Spacing** | {top.spacing_grid_diff + b.spacing.get('base', 8)}px grid | {b.spacing.get('base', '?')}px grid | diff {top.spacing_grid_diff}px | {top.spacing_match_pct:.0f}% |")
-        lines.append(f"| **Colors** | — | {b.colors.get('palette_size', '?')} colors | {top.color_gap or 'N/A'} | {top.color_match_pct:.0f}% |")
-        b_radius = b.radius if hasattr(b, 'radius') and b.radius else {}
-        b_shadows = b.shadows if hasattr(b, 'shadows') and b.shadows else {}
-        lines.append(f"| **Radius** | — | {b_radius.get('tiers', '?')} tiers ({b_radius.get('strategy', '?')}) | {top.radius_gap or 'N/A'} | {top.radius_match_pct:.0f}% |")
-        lines.append(f"| **Shadows** | — | {b_shadows.get('levels', '?')} levels | {top.shadow_gap or 'N/A'} | {top.shadow_match_pct:.0f}% |")
-
-    lines.append("")
-
-    # Alignment changes needed
-    if benchmark_advice and benchmark_advice.alignment_changes:
-        lines.append("### 🔧 Changes to Align")
-        for change in benchmark_advice.alignment_changes[:5]:
-            token_type = change.get('token_type', '')
-            icon = {"typography": "📐", "spacing": "📏", "colors": "🎨", "radius": "🔘", "shadows": "🌗"}.get(token_type, "🔧")
-            lines.append(f"- {icon} **{change.get('change', '?')}**: {change.get('from', '?')} → {change.get('to', '?')} (effort: {change.get('effort', '?')})")
-    lines.append("")
-
-    # Pros and cons
-    if benchmark_advice:
-        if benchmark_advice.pros_of_alignment:
-            lines.append("**✅ Pros of aligning:**")
-            for pro in benchmark_advice.pros_of_alignment[:3]:
-                lines.append(f"- {pro}")
-        if benchmark_advice.cons_of_alignment:
-            lines.append("")
-            lines.append("**⚠️ Considerations:**")
-            for con in benchmark_advice.cons_of_alignment[:3]:
-                lines.append(f"- {con}")
-
-    return "\n".join(lines)
+    """Format benchmark comparison as visual HTML cards with progress bars."""
+    return _render_benchmark_cards(benchmark_comparisons, benchmark_advice)
 
 
 def format_scores_dashboard_v2(rule_results, final_synthesis, best_practices) -> str:
@@ -3583,15 +3551,170 @@ def export_tokens_json(convention: str = "semantic"):
 
 
 # =============================================================================
+# UI HELPERS
+# =============================================================================
+
+def _render_stepper(active: int = 1, completed: list = None) -> str:
+    """Render the horizontal progress stepper HTML.
+
+    Args:
+        active: Current active step (1-5)
+        completed: List of completed step numbers
+    """
+    if completed is None:
+        completed = []
+
+    steps = [
+        ("1", "Discover"),
+        ("2", "Extract"),
+        ("3", "Analyze"),
+        ("4", "Review"),
+        ("5", "Export"),
+    ]
+
+    parts = []
+    for i, (num, label) in enumerate(steps):
+        step_num = i + 1
+        if step_num in completed:
+            cls = "completed"
+            icon = "✓"
+        elif step_num == active:
+            cls = "active"
+            icon = num
+        else:
+            cls = ""
+            icon = num
+
+        parts.append(f'<div class="step-item {cls}"><span class="step-num">{icon}</span>{label}</div>')
+
+        if i < len(steps) - 1:
+            conn_cls = "done" if step_num in completed else ""
+            parts.append(f'<div class="step-connector {conn_cls}"></div>')
+
+    return f'<div class="progress-stepper">{"".join(parts)}</div>'
+
+
+def _render_benchmark_cards(benchmark_comparisons, benchmark_advice) -> str:
+    """Render visual benchmark cards with progress bars instead of markdown table."""
+    if not benchmark_comparisons:
+        return "<div class='placeholder-msg'>No benchmark comparison available</div>"
+
+    medals = ["🥇", "🥈", "🥉"]
+    cards_html = []
+
+    # Recommendation banner
+    rec_html = ""
+    if benchmark_advice and benchmark_advice.recommended_benchmark_name:
+        rec_html = f"""
+        <div style="background: #f5f3ff; border: 1px solid #c4b5fd; border-radius: 8px;
+                    padding: 14px 18px; margin-bottom: 16px; display: flex; align-items: center; gap: 10px;">
+            <span style="font-size: 20px;">🏆</span>
+            <div>
+                <div style="font-weight: 600; color: #4C1D95; font-size: 14px;">
+                    Recommended: {benchmark_advice.recommended_benchmark_name}
+                </div>
+                <div style="font-size: 12px; color: #6D28D9; margin-top: 2px;">
+                    {benchmark_advice.reasoning or ''}
+                </div>
+            </div>
+        </div>"""
+
+    for i, c in enumerate(benchmark_comparisons[:5]):
+        b = c.benchmark
+        medal = medals[i] if i < 3 else f"#{i+1}"
+
+        def bar_color(pct):
+            if pct >= 80: return "#10b981"
+            elif pct >= 50: return "#f59e0b"
+            else: return "#ef4444"
+
+        categories = [
+            ("Type", c.type_match_pct),
+            ("Spacing", c.spacing_match_pct),
+            ("Colors", c.color_match_pct),
+            ("Radius", c.radius_match_pct),
+            ("Shadows", c.shadow_match_pct),
+        ]
+
+        bars = ""
+        for cat_name, pct in categories:
+            color = bar_color(pct)
+            bars += f"""
+            <div class="bm-bar-row">
+                <div class="bm-bar-label">{cat_name}</div>
+                <div class="bm-bar-track">
+                    <div class="bm-bar-fill" style="width: {pct:.0f}%; background: {color};"></div>
+                </div>
+                <div class="bm-bar-value" style="color: {color};">{pct:.0f}%</div>
+            </div>"""
+
+        cards_html.append(f"""
+        <div class="bm-card">
+            <div class="bm-card-header">
+                <div style="display: flex; align-items: center;">
+                    <span class="bm-medal">{medal}</span>
+                    <span class="bm-card-name">{b.icon} {b.short_name}</span>
+                </div>
+                <div class="bm-card-pct">{c.overall_match_pct:.0f}%</div>
+            </div>
+            {bars}
+        </div>""")
+
+    # Alignment changes
+    changes_html = ""
+    if benchmark_advice and benchmark_advice.alignment_changes:
+        items = []
+        for change in benchmark_advice.alignment_changes[:4]:
+            token_type = change.get('token_type', '')
+            icon = {"typography": "📐", "spacing": "📏", "colors": "🎨", "radius": "🔘", "shadows": "🌗"}.get(token_type, "🔧")
+            items.append(f"<li>{icon} <strong>{change.get('change', '?')}</strong>: {change.get('from', '?')} → {change.get('to', '?')}</li>")
+        changes_html = f"""
+        <div style="margin-top: 16px; padding: 14px 18px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px;">
+            <div style="font-weight: 600; font-size: 14px; margin-bottom: 8px; color: #1e293b;">🔧 To Align with Top Match</div>
+            <ul style="margin: 0; padding-left: 20px; font-size: 13px; color: #475569; line-height: 1.8;">
+                {''.join(items)}
+            </ul>
+        </div>"""
+
+    return f"""
+    {rec_html}
+    <div class="bm-card-grid">
+        {''.join(cards_html)}
+    </div>
+    {changes_html}
+    """
+
+
+def _render_as_is_to_be(category: str, as_is_value: str, as_is_detail: str,
+                         to_be_value: str, to_be_detail: str, icon: str = "📐") -> str:
+    """Render an As-Is → To-Be comparison card for a token category."""
+    return f"""
+    <div class="comparison-grid">
+        <div class="comparison-card as-is">
+            <div class="comparison-label as-is-label">{icon} {category} — AS-IS</div>
+            <div class="comparison-value">{as_is_value}</div>
+            <div class="comparison-detail">{as_is_detail}</div>
+        </div>
+        <div class="comparison-arrow">→</div>
+        <div class="comparison-card to-be">
+            <div class="comparison-label to-be-label">{icon} {category} — TO-BE</div>
+            <div class="comparison-value">{to_be_value}</div>
+            <div class="comparison-detail">{to_be_detail}</div>
+        </div>
+    </div>
+    """
+
+
+# =============================================================================
 # UI BUILDING
 # =============================================================================
 
 def create_ui():
     """Create the Gradio interface with corporate branding."""
     
-    # Corporate theme customization
+    # Corporate theme — Deep Violet accent (distinctive, not blue)
     corporate_theme = gr.themes.Base(
-        primary_hue=gr.themes.colors.blue,
+        primary_hue=gr.themes.colors.violet,
         secondary_hue=gr.themes.colors.slate,
         neutral_hue=gr.themes.colors.slate,
         font=[gr.themes.GoogleFont("Inter"), "ui-sans-serif", "system-ui", "sans-serif"],
@@ -3604,72 +3727,157 @@ def create_ui():
         block_background_fill_dark="#1e293b",
         block_border_color="#e2e8f0",
         block_border_color_dark="#334155",
-        block_label_background_fill="#f1f5f9",
+        block_label_background_fill="#f5f3ff",
         block_label_background_fill_dark="#1e293b",
         block_title_text_color="#0f172a",
         block_title_text_color_dark="#f1f5f9",
-        
-        # Primary button
-        button_primary_background_fill="#2563eb",
-        button_primary_background_fill_hover="#1d4ed8",
+
+        # Primary button — Deep Violet
+        button_primary_background_fill="#6D28D9",
+        button_primary_background_fill_hover="#5B21B6",
         button_primary_text_color="white",
-        
+
         # Secondary button
-        button_secondary_background_fill="#f1f5f9",
-        button_secondary_background_fill_hover="#e2e8f0",
+        button_secondary_background_fill="#f5f3ff",
+        button_secondary_background_fill_hover="#ede9fe",
         button_secondary_text_color="#1e293b",
-        
+
         # Input fields
         input_background_fill="#ffffff",
         input_background_fill_dark="#1e293b",
         input_border_color="#cbd5e1",
         input_border_color_dark="#475569",
-        
+
         # Shadows and radius
         block_shadow="0 1px 3px rgba(0,0,0,0.1)",
         block_shadow_dark="0 1px 3px rgba(0,0,0,0.3)",
         block_border_width="1px",
         block_radius="8px",
-        
+
         # Text
         body_text_color="#1e293b",
         body_text_color_dark="#e2e8f0",
         body_text_size="14px",
     )
     
-    # Custom CSS for additional styling
+    # Custom CSS — Deep Violet theme + Progress Stepper + Always-visible log
     custom_css = """
-    /* Global styles */
+    /* ═══════════════════════════════════════════════════════════════
+       GLOBAL
+       ═══════════════════════════════════════════════════════════════ */
     .gradio-container {
         max-width: 1400px !important;
         margin: 0 auto !important;
     }
-    
-    /* Header branding */
+
+    /* ═══════════════════════════════════════════════════════════════
+       HEADER — Deep Violet gradient
+       ═══════════════════════════════════════════════════════════════ */
     .app-header {
-        background: linear-gradient(135deg, #1e40af 0%, #3b82f6 100%);
-        padding: 24px 32px;
+        background: linear-gradient(135deg, #4C1D95 0%, #7C3AED 50%, #8B5CF6 100%);
+        padding: 28px 32px;
         border-radius: 12px;
-        margin-bottom: 24px;
+        margin-bottom: 8px;
         color: white;
+        position: relative;
+        overflow: hidden;
+    }
+    .app-header::before {
+        content: '';
+        position: absolute;
+        top: -50%;
+        right: -30%;
+        width: 60%;
+        height: 200%;
+        background: radial-gradient(ellipse, rgba(255,255,255,0.08) 0%, transparent 70%);
+        pointer-events: none;
     }
     .app-header h1 {
-        margin: 0 0 8px 0;
-        font-size: 28px;
+        margin: 0 0 6px 0;
+        font-size: 26px;
         font-weight: 700;
+        letter-spacing: -0.3px;
     }
     .app-header p {
         margin: 0;
-        opacity: 0.9;
-        font-size: 14px;
+        opacity: 0.85;
+        font-size: 13px;
     }
-    
-    /* Stage indicators */
+
+    /* ═══════════════════════════════════════════════════════════════
+       PROGRESS STEPPER — horizontal workflow indicator
+       ═══════════════════════════════════════════════════════════════ */
+    .progress-stepper {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 16px 20px;
+        background: white;
+        border: 1px solid #e2e8f0;
+        border-radius: 10px;
+        margin-bottom: 20px;
+        gap: 0;
+    }
+    .step-item {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 6px 14px;
+        border-radius: 20px;
+        font-size: 13px;
+        font-weight: 500;
+        color: #94a3b8;
+        transition: all 0.3s ease;
+        white-space: nowrap;
+    }
+    .step-item.active {
+        background: #f5f3ff;
+        color: #6D28D9;
+        font-weight: 600;
+    }
+    .step-item.completed {
+        color: #10b981;
+        font-weight: 500;
+    }
+    .step-num {
+        width: 24px;
+        height: 24px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 12px;
+        font-weight: 700;
+        background: #e2e8f0;
+        color: #94a3b8;
+        flex-shrink: 0;
+    }
+    .step-item.active .step-num {
+        background: #6D28D9;
+        color: white;
+    }
+    .step-item.completed .step-num {
+        background: #10b981;
+        color: white;
+    }
+    .step-connector {
+        width: 32px;
+        height: 2px;
+        background: #e2e8f0;
+        flex-shrink: 0;
+    }
+    .step-connector.done {
+        background: #10b981;
+    }
+
+    /* ═══════════════════════════════════════════════════════════════
+       STAGE HEADERS — Violet accent
+       ═══════════════════════════════════════════════════════════════ */
     .stage-header {
-        background: linear-gradient(90deg, #f1f5f9 0%, #ffffff 100%);
+        background: linear-gradient(90deg, #f5f3ff 0%, #ffffff 100%);
         padding: 16px 20px;
         border-radius: 8px;
-        border-left: 4px solid #2563eb;
+        border-left: 4px solid #6D28D9;
         margin-bottom: 16px;
     }
     .stage-header h2 {
@@ -3677,8 +3885,10 @@ def create_ui():
         font-size: 18px;
         color: #1e293b;
     }
-    
-    /* Log styling */
+
+    /* ═══════════════════════════════════════════════════════════════
+       LOG — Always visible during loading (z-index trick)
+       ═══════════════════════════════════════════════════════════════ */
     .log-container textarea {
         font-family: 'JetBrains Mono', monospace !important;
         font-size: 12px !important;
@@ -3687,8 +3897,18 @@ def create_ui():
         color: #e2e8f0 !important;
         border-radius: 8px !important;
     }
-    
-    /* Color swatch */
+    /* Keep log visible above Gradio loading overlay */
+    .always-visible-log {
+        position: relative;
+        z-index: 1001;
+    }
+    .always-visible-log .wrap {
+        opacity: 1 !important;
+    }
+
+    /* ═══════════════════════════════════════════════════════════════
+       COLOR SWATCH
+       ═══════════════════════════════════════════════════════════════ */
     .color-swatch {
         display: inline-block;
         width: 24px;
@@ -3698,8 +3918,10 @@ def create_ui():
         vertical-align: middle;
         border: 1px solid rgba(0,0,0,0.1);
     }
-    
-    /* Score badges */
+
+    /* ═══════════════════════════════════════════════════════════════
+       SCORE BADGES
+       ═══════════════════════════════════════════════════════════════ */
     .score-badge {
         display: inline-block;
         padding: 4px 12px;
@@ -3710,8 +3932,10 @@ def create_ui():
     .score-badge.high { background: #dcfce7; color: #166534; }
     .score-badge.medium { background: #fef3c7; color: #92400e; }
     .score-badge.low { background: #fee2e2; color: #991b1b; }
-    
-    /* Benchmark cards */
+
+    /* ═══════════════════════════════════════════════════════════════
+       BENCHMARK CARDS — Visual cards with progress bars
+       ═══════════════════════════════════════════════════════════════ */
     .benchmark-card {
         background: #f8fafc;
         border: 1px solid #e2e8f0;
@@ -3720,11 +3944,141 @@ def create_ui():
         margin-bottom: 12px;
     }
     .benchmark-card.selected {
-        border-color: #2563eb;
-        background: #eff6ff;
+        border-color: #6D28D9;
+        background: #f5f3ff;
     }
-    
-    /* Action items */
+    .bm-card-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+        gap: 16px;
+        margin: 16px 0;
+    }
+    .bm-card {
+        background: white;
+        border: 1px solid #e2e8f0;
+        border-radius: 10px;
+        padding: 18px;
+        transition: all 0.2s ease;
+    }
+    .bm-card:first-child {
+        border: 2px solid #6D28D9;
+        box-shadow: 0 0 0 3px rgba(109,40,217,0.1);
+    }
+    .bm-card-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 14px;
+    }
+    .bm-card-name {
+        font-weight: 600;
+        font-size: 15px;
+        color: #1e293b;
+    }
+    .bm-card-pct {
+        font-weight: 700;
+        font-size: 20px;
+        color: #6D28D9;
+    }
+    .bm-card:first-child .bm-card-pct {
+        color: #6D28D9;
+    }
+    .bm-bar-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 8px;
+    }
+    .bm-bar-label {
+        width: 70px;
+        font-size: 11px;
+        color: #64748b;
+        text-align: right;
+        flex-shrink: 0;
+    }
+    .bm-bar-track {
+        flex: 1;
+        height: 6px;
+        background: #e2e8f0;
+        border-radius: 3px;
+        overflow: hidden;
+    }
+    .bm-bar-fill {
+        height: 100%;
+        border-radius: 3px;
+        transition: width 0.5s ease;
+    }
+    .bm-bar-value {
+        width: 40px;
+        font-size: 11px;
+        color: #475569;
+        font-weight: 600;
+    }
+    .bm-medal {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 26px;
+        height: 26px;
+        border-radius: 50%;
+        font-size: 14px;
+        margin-right: 6px;
+    }
+
+    /* ═══════════════════════════════════════════════════════════════
+       AS-IS vs TO-BE COMPARISON CARDS
+       ═══════════════════════════════════════════════════════════════ */
+    .comparison-grid {
+        display: grid;
+        grid-template-columns: 1fr auto 1fr;
+        gap: 0;
+        margin: 16px 0;
+        align-items: stretch;
+    }
+    .comparison-card {
+        background: white;
+        border: 1px solid #e2e8f0;
+        border-radius: 10px;
+        padding: 18px;
+    }
+    .comparison-card.as-is {
+        border-left: 4px solid #94a3b8;
+    }
+    .comparison-card.to-be {
+        border-left: 4px solid #6D28D9;
+        background: #faf5ff;
+    }
+    .comparison-arrow {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0 12px;
+        font-size: 24px;
+        color: #6D28D9;
+    }
+    .comparison-label {
+        font-size: 11px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        margin-bottom: 10px;
+    }
+    .comparison-label.as-is-label { color: #94a3b8; }
+    .comparison-label.to-be-label { color: #6D28D9; }
+    .comparison-value {
+        font-size: 22px;
+        font-weight: 700;
+        color: #1e293b;
+        margin-bottom: 4px;
+    }
+    .comparison-detail {
+        font-size: 12px;
+        color: #64748b;
+    }
+
+    /* ═══════════════════════════════════════════════════════════════
+       ACTION ITEMS
+       ═══════════════════════════════════════════════════════════════ */
     .action-item {
         background: white;
         border: 1px solid #e2e8f0;
@@ -3738,8 +4092,10 @@ def create_ui():
     .action-item.medium-priority {
         border-left: 4px solid #f59e0b;
     }
-    
-    /* Progress indicator */
+
+    /* ═══════════════════════════════════════════════════════════════
+       PROGRESS BAR (generic)
+       ═══════════════════════════════════════════════════════════════ */
     .progress-bar {
         height: 4px;
         background: #e2e8f0;
@@ -3748,22 +4104,19 @@ def create_ui():
     }
     .progress-bar-fill {
         height: 100%;
-        background: linear-gradient(90deg, #2563eb, #3b82f6);
+        background: linear-gradient(90deg, #6D28D9, #8B5CF6);
         transition: width 0.3s ease;
     }
-    
-    /* Accordion styling */
-    .accordion-header {
-        font-weight: 600 !important;
-    }
-    
-    /* Table styling */
+
+    /* ═══════════════════════════════════════════════════════════════
+       TABLES
+       ═══════════════════════════════════════════════════════════════ */
     table {
         border-collapse: collapse;
         width: 100%;
     }
     th {
-        background: #f1f5f9;
+        background: #f5f3ff;
         color: #1e293b;
         padding: 12px;
         text-align: left;
@@ -3776,7 +4129,9 @@ def create_ui():
         border-bottom: 1px solid #e2e8f0;
     }
 
-    /* Section descriptions */
+    /* ═══════════════════════════════════════════════════════════════
+       SECTION DESCRIPTIONS
+       ═══════════════════════════════════════════════════════════════ */
     .section-desc p, .section-desc {
         font-size: 13px !important;
         color: #64748b !important;
@@ -3788,68 +4143,97 @@ def create_ui():
         color: #94a3b8 !important;
     }
 
-    /* Success messages */
+    /* ═══════════════════════════════════════════════════════════════
+       SUCCESS / ERROR MESSAGES
+       ═══════════════════════════════════════════════════════════════ */
     .success-msg { background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 16px; margin: 8px 0; }
     .success-msg h2 { color: #166534 !important; }
     .dark .success-msg { background: #052e16 !important; border-color: #166534 !important; }
     .dark .success-msg h2 { color: #bbf7d0 !important; }
     .dark .success-msg p { color: #d1d5db !important; }
-
-    /* Error messages */
     .error-msg { background: #fef2f2; border: 1px solid #fecaca; border-radius: 8px; padding: 16px; margin: 8px 0; }
     .error-msg h2 { color: #991b1b !important; }
     .dark .error-msg { background: #450a0a !important; border-color: #991b1b !important; }
     .dark .error-msg h2 { color: #fecaca !important; }
     .dark .error-msg p { color: #d1d5db !important; }
 
-    /* Placeholder messages */
+    /* ═══════════════════════════════════════════════════════════════
+       PLACEHOLDER MESSAGES
+       ═══════════════════════════════════════════════════════════════ */
     .placeholder-msg {
         padding: 20px;
-        background: #f5f5f5;
+        background: #f5f3ff;
         border-radius: 8px;
-        color: #666;
+        color: #6D28D9;
+        border: 1px dashed #c4b5fd;
+        text-align: center;
     }
     .placeholder-msg.placeholder-lg {
         padding: 40px;
-        text-align: center;
     }
 
-    /* Progress bar */
-    .progress-bar {
-        background: #e2e8f0;
-    }
+    /* ═══════════════════════════════════════════════════════════════
+       DARK MODE
+       ═══════════════════════════════════════════════════════════════ */
 
-    /* Dark mode adjustments */
-    .dark .stage-header {
-        background: linear-gradient(90deg, #1e293b 0%, #0f172a 100%);
-        border-left-color: #3b82f6;
-    }
-    .dark .stage-header h2 {
-        color: #f1f5f9;
-    }
-    .dark .stage-header-subtitle,
-    .dark .tip-text {
-        color: #94a3b8 !important;
-    }
-    .dark .benchmark-card {
+    /* Stepper */
+    .dark .progress-stepper {
         background: #1e293b;
         border-color: #334155;
     }
+    .dark .step-item { color: #64748b; }
+    .dark .step-item.active { background: #2e1065; color: #c4b5fd; }
+    .dark .step-item.completed { color: #34d399; }
+    .dark .step-num { background: #334155; color: #64748b; }
+    .dark .step-item.active .step-num { background: #7C3AED; color: white; }
+    .dark .step-item.completed .step-num { background: #10b981; color: white; }
+    .dark .step-connector { background: #334155; }
+    .dark .step-connector.done { background: #10b981; }
+
+    /* Stage header */
+    .dark .stage-header {
+        background: linear-gradient(90deg, #1e293b 0%, #0f172a 100%);
+        border-left-color: #7C3AED;
+    }
+    .dark .stage-header h2 { color: #f1f5f9; }
+    .dark .stage-header-subtitle, .dark .tip-text { color: #94a3b8 !important; }
+
+    /* Benchmark cards */
+    .dark .benchmark-card { background: #1e293b; border-color: #334155; }
+    .dark .benchmark-card.selected { border-color: #7C3AED; background: #2e1065; }
+    .dark .bm-card { background: #1e293b; border-color: #334155; }
+    .dark .bm-card:first-child { border-color: #7C3AED; box-shadow: 0 0 0 3px rgba(124,58,237,0.15); }
+    .dark .bm-card-name { color: #f1f5f9; }
+    .dark .bm-card-pct { color: #c4b5fd; }
+    .dark .bm-bar-label { color: #94a3b8; }
+    .dark .bm-bar-track { background: #334155; }
+    .dark .bm-bar-value { color: #cbd5e1; }
+
+    /* Comparison cards */
+    .dark .comparison-card { background: #1e293b; border-color: #334155; }
+    .dark .comparison-card.to-be { background: #2e1065; border-left-color: #7C3AED; }
+    .dark .comparison-arrow { color: #c4b5fd; }
+    .dark .comparison-label.to-be-label { color: #c4b5fd; }
+    .dark .comparison-value { color: #f1f5f9; }
+    .dark .comparison-detail { color: #94a3b8; }
+
+    /* Action items */
     .dark .action-item {
         background: #1e293b;
         border-color: #475569;
         color: #e2e8f0;
     }
-    /* Dark mode: Placeholder messages */
+    .dark .action-item.high-priority { border-left-color: #ef4444; }
+    .dark .action-item.medium-priority { border-left-color: #f59e0b; }
+
+    /* Placeholder */
     .dark .placeholder-msg {
-        background: #1e293b !important;
-        color: #94a3b8 !important;
+        background: #1e1b2e !important;
+        color: #a78bfa !important;
+        border-color: #4c1d95 !important;
     }
-    /* Dark mode: Progress bar */
-    .dark .progress-bar {
-        background: #334155 !important;
-    }
-    /* Dark mode: Gradio Dataframe tables */
+
+    /* Tables */
     .dark table th {
         background: #1e293b !important;
         color: #e2e8f0 !important;
@@ -3859,238 +4243,89 @@ def create_ui():
         color: #e2e8f0 !important;
         border-bottom-color: #334155 !important;
     }
-    .dark table tr {
-        background: #0f172a !important;
-    }
-    .dark table tr:nth-child(even) {
-        background: #1e293b !important;
-    }
-    /* Dark mode: HTML preview tables (typography, benchmarks) */
-    .dark .typography-preview {
-        background: #1e293b !important;
-    }
-    .dark .typography-preview th {
-        background: #334155 !important;
-        color: #e2e8f0 !important;
-        border-bottom-color: #475569 !important;
-    }
-    .dark .typography-preview td {
-        color: #e2e8f0 !important;
-    }
-    .dark .typography-preview .meta-row {
-        background: #1e293b !important;
-        border-top-color: #334155 !important;
-    }
+    .dark table tr { background: #0f172a !important; }
+    .dark table tr:nth-child(even) { background: #1e293b !important; }
+
+    /* Typography preview */
+    .dark .typography-preview { background: #1e293b !important; }
+    .dark .typography-preview th { background: #334155 !important; color: #e2e8f0 !important; border-bottom-color: #475569 !important; }
+    .dark .typography-preview td { color: #e2e8f0 !important; }
+    .dark .typography-preview .meta-row { background: #1e293b !important; border-top-color: #334155 !important; }
     .dark .typography-preview .scale-name,
-    .dark .typography-preview .scale-label {
-        color: #f1f5f9 !important;
-        background: #475569 !important;
-    }
-    .dark .typography-preview .meta {
-        color: #cbd5e1 !important;
-    }
-    .dark .typography-preview .preview-cell {
-        background: #0f172a !important;
-        border-bottom-color: #334155 !important;
-    }
-    .dark .typography-preview .preview-text {
-        color: #f1f5f9 !important;
-    }
-    .dark .typography-preview tr:hover .preview-cell {
-        background: #1e293b !important;
-    }
+    .dark .typography-preview .scale-label { color: #f1f5f9 !important; background: #475569 !important; }
+    .dark .typography-preview .meta { color: #cbd5e1 !important; }
+    .dark .typography-preview .preview-cell { background: #0f172a !important; border-bottom-color: #334155 !important; }
+    .dark .typography-preview .preview-text { color: #f1f5f9 !important; }
+    .dark .typography-preview tr:hover .preview-cell { background: #1e293b !important; }
 
-    /* Dark mode: Colors AS-IS preview */
-    .dark .colors-asis-header {
-        color: #e2e8f0 !important;
-        background: #1e293b !important;
-    }
-    .dark .colors-asis-preview {
-        background: #0f172a !important;
-    }
-    .dark .color-row-asis {
-        background: #1e293b !important;
-        border-color: #475569 !important;
-    }
-    .dark .color-name-asis {
-        color: #f1f5f9 !important;
-    }
-    .dark .frequency {
-        color: #cbd5e1 !important;
-    }
-    .dark .color-meta-asis .aa-pass {
-        color: #22c55e !important;
-        background: #14532d !important;
-    }
-    .dark .color-meta-asis .aa-fail {
-        color: #f87171 !important;
-        background: #450a0a !important;
-    }
-    .dark .context-badge {
-        background: #334155 !important;
-        color: #e2e8f0 !important;
-    }
+    /* Colors AS-IS preview */
+    .dark .colors-asis-header { color: #e2e8f0 !important; background: #1e293b !important; }
+    .dark .colors-asis-preview { background: #0f172a !important; }
+    .dark .color-row-asis { background: #1e293b !important; border-color: #475569 !important; }
+    .dark .color-name-asis { color: #f1f5f9 !important; }
+    .dark .frequency { color: #cbd5e1 !important; }
+    .dark .color-meta-asis .aa-pass { color: #22c55e !important; background: #14532d !important; }
+    .dark .color-meta-asis .aa-fail { color: #f87171 !important; background: #450a0a !important; }
+    .dark .context-badge { background: #334155 !important; color: #e2e8f0 !important; }
 
-    /* Dark mode: Color ramps preview */
-    .dark .color-ramps-preview {
-        background: #0f172a !important;
-    }
-    .dark .ramps-header-info {
-        color: #e2e8f0 !important;
-        background: #1e293b !important;
-    }
-    .dark .ramp-header {
-        background: #1e293b !important;
-    }
-    .dark .ramp-header-label {
-        color: #cbd5e1 !important;
-    }
-    .dark .color-row {
-        background: #1e293b !important;
-        border-color: #475569 !important;
-    }
-    .dark .color-name {
-        color: #f1f5f9 !important;
-        background: #475569 !important;
-    }
-    .dark .color-hex {
-        color: #cbd5e1 !important;
-    }
+    /* Color ramps preview */
+    .dark .color-ramps-preview { background: #0f172a !important; }
+    .dark .ramps-header-info { color: #e2e8f0 !important; background: #1e293b !important; }
+    .dark .ramp-header { background: #1e293b !important; }
+    .dark .ramp-header-label { color: #cbd5e1 !important; }
+    .dark .color-row { background: #1e293b !important; border-color: #475569 !important; }
+    .dark .color-name { color: #f1f5f9 !important; background: #475569 !important; }
+    .dark .color-hex { color: #cbd5e1 !important; }
 
-    /* Dark mode: Spacing preview */
-    .dark .spacing-asis-preview {
-        background: #0f172a !important;
-    }
-    .dark .spacing-row-asis {
-        background: #1e293b !important;
-    }
-    .dark .spacing-label {
-        color: #f1f5f9 !important;
-    }
+    /* Spacing preview */
+    .dark .spacing-asis-preview { background: #0f172a !important; }
+    .dark .spacing-row-asis { background: #1e293b !important; }
+    .dark .spacing-label { color: #f1f5f9 !important; }
 
-    /* Dark mode: Radius preview */
-    .dark .radius-asis-preview {
-        background: #0f172a !important;
-    }
-    .dark .radius-item {
-        background: #1e293b !important;
-    }
-    .dark .radius-label {
-        color: #f1f5f9 !important;
-    }
+    /* Radius preview */
+    .dark .radius-asis-preview { background: #0f172a !important; }
+    .dark .radius-item { background: #1e293b !important; }
+    .dark .radius-label { color: #f1f5f9 !important; }
 
-    /* Dark mode: Shadows preview */
-    .dark .shadows-asis-preview {
-        background: #0f172a !important;
-    }
-    .dark .shadow-item {
-        background: #1e293b !important;
-    }
-    .dark .shadow-box {
-        background: #334155 !important;
-    }
-    .dark .shadow-label {
-        color: #f1f5f9 !important;
-    }
-    .dark .shadow-value {
-        color: #94a3b8 !important;
-    }
+    /* Shadows preview */
+    .dark .shadows-asis-preview { background: #0f172a !important; }
+    .dark .shadow-item { background: #1e293b !important; }
+    .dark .shadow-box { background: #334155 !important; }
+    .dark .shadow-label { color: #f1f5f9 !important; }
+    .dark .shadow-value { color: #94a3b8 !important; }
 
-    /* Dark mode: Semantic color ramps */
-    .dark .sem-ramps-preview {
-        background: #0f172a !important;
-    }
-    .dark .sem-category {
-        background: #1e293b !important;
-        border-color: #475569 !important;
-    }
-    .dark .sem-cat-title {
-        color: #f1f5f9 !important;
-        border-bottom-color: #475569 !important;
-    }
-    .dark .sem-color-row {
-        background: #0f172a !important;
-        border-color: #334155 !important;
-    }
-    .dark .sem-role {
-        color: #f1f5f9 !important;
-    }
-    .dark .sem-hex {
-        color: #cbd5e1 !important;
-    }
-    .dark .llm-rec {
-        background: #422006 !important;
-        border-color: #b45309 !important;
-    }
-    .dark .rec-label {
-        color: #fbbf24 !important;
-    }
-    .dark .rec-issue {
-        color: #fde68a !important;
-    }
-    .dark .rec-arrow {
-        color: #fbbf24 !important;
-    }
-    .dark .llm-summary {
-        background: #1e3a5f !important;
-        border-color: #3b82f6 !important;
-    }
-    .dark .llm-summary h4 {
-        color: #93c5fd !important;
-    }
-    .dark .llm-summary ul,
-    .dark .llm-summary li {
-        color: #bfdbfe !important;
-    }
+    /* Semantic color ramps */
+    .dark .sem-ramps-preview { background: #0f172a !important; }
+    .dark .sem-category { background: #1e293b !important; border-color: #475569 !important; }
+    .dark .sem-cat-title { color: #f1f5f9 !important; border-bottom-color: #475569 !important; }
+    .dark .sem-color-row { background: #0f172a !important; border-color: #334155 !important; }
+    .dark .sem-role { color: #f1f5f9 !important; }
+    .dark .sem-hex { color: #cbd5e1 !important; }
+    .dark .llm-rec { background: #422006 !important; border-color: #b45309 !important; }
+    .dark .rec-label { color: #fbbf24 !important; }
+    .dark .rec-issue { color: #fde68a !important; }
+    .dark .rec-arrow { color: #fbbf24 !important; }
+    .dark .llm-summary { background: #2e1065 !important; border-color: #7C3AED !important; }
+    .dark .llm-summary h4 { color: #c4b5fd !important; }
+    .dark .llm-summary ul, .dark .llm-summary li { color: #ddd6fe !important; }
 
-    /* Dark mode: Score badges */
+    /* Score badges */
     .dark .score-badge.high { background: #14532d; color: #86efac; }
     .dark .score-badge.medium { background: #422006; color: #fde68a; }
     .dark .score-badge.low { background: #450a0a; color: #fca5a5; }
 
-    /* Dark mode: Benchmark & action cards */
-    .dark .benchmark-card.selected {
-        border-color: #3b82f6;
-        background: #1e3a5f;
-    }
-    .dark .action-item.high-priority {
-        border-left-color: #ef4444;
-    }
-    .dark .action-item.medium-priority {
-        border-left-color: #f59e0b;
-    }
+    /* Markdown tables */
+    .dark .prose table th, .dark .markdown-text table th { background: #1e293b !important; color: #e2e8f0 !important; border-color: #475569 !important; }
+    .dark .prose table td, .dark .markdown-text table td { color: #e2e8f0 !important; border-color: #334155 !important; }
+    .dark .prose table tr, .dark .markdown-text table tr { background: #0f172a !important; }
+    .dark .prose table tr:nth-child(even), .dark .markdown-text table tr:nth-child(even) { background: #1e293b !important; }
 
-    /* Dark mode: Gradio markdown rendered tables */
-    .dark .prose table th,
-    .dark .markdown-text table th {
-        background: #1e293b !important;
-        color: #e2e8f0 !important;
-        border-color: #475569 !important;
-    }
-    .dark .prose table td,
-    .dark .markdown-text table td {
-        color: #e2e8f0 !important;
-        border-color: #334155 !important;
-    }
-    .dark .prose table tr,
-    .dark .markdown-text table tr {
-        background: #0f172a !important;
-    }
-    .dark .prose table tr:nth-child(even),
-    .dark .markdown-text table tr:nth-child(even) {
-        background: #1e293b !important;
-    }
-
-    /* Dark mode: Generic text in HTML components */
-    .dark .gradio-html p,
-    .dark .gradio-html span,
-    .dark .gradio-html div {
-        color: #e2e8f0;
-    }
+    /* Generic dark HTML text */
+    .dark .gradio-html p, .dark .gradio-html span, .dark .gradio-html div { color: #e2e8f0; }
     """
     
     with gr.Blocks(
-        title="Design System Extractor v2",
+        title="Design System Extractor v3",
         theme=corporate_theme,
         css=custom_css
     ) as app:
@@ -4098,14 +4333,16 @@ def create_ui():
         # Header with branding
         gr.HTML("""
         <div class="app-header">
-            <h1>🎨 Design System Extractor v2</h1>
+            <h1>🎨 Design System Extractor</h1>
             <p>Reverse-engineer design systems from live websites • AI-powered analysis • Figma-ready export</p>
         </div>
         """)
-        gr.Markdown("This tool works in **3 stages**: (1) Discover & extract design tokens from a live website, "
-                     "(2) Run AI-powered analysis to benchmark and improve your tokens, "
-                     "(3) Export Figma-ready JSON. Start by entering a URL below.",
-                     elem_classes=["section-desc"])
+
+        # Progress stepper — always visible, updated by JS
+        progress_stepper = gr.HTML(
+            value=_render_stepper(active=1),
+            elem_classes=["progress-stepper-wrap"]
+        )
 
         # =================================================================
         # CONFIGURATION
@@ -4286,7 +4523,7 @@ def create_ui():
         # =================================================================
         
         with gr.Accordion("🧠 Stage 2: AI-Powered Analysis", open=False) as stage2_accordion:
-            
+
             # Stage header
             gr.HTML("""
             <div class="stage-header">
@@ -4294,317 +4531,217 @@ def create_ui():
                 <p class="stage-header-subtitle" style="color: #64748b; margin-top: 4px;">Rule Engine + Benchmark Research + LLM Agents</p>
             </div>
             """)
-            
+
             stage2_status = gr.Markdown("Click **'Run Analysis'** below to start AI-powered design system analysis. "
                                        "This runs a 4-layer pipeline: Rule Engine → Benchmark Research → LLM Agents → Head Synthesizer.")
 
-            # =============================================================
-            # NEW ARCHITECTURE CONFIGURATION
-            # =============================================================
-            with gr.Accordion("⚙️ Analysis Configuration", open=True):
-                
-                # Architecture explanation
-                gr.Markdown("""
-                ### 🏗️ New Analysis Architecture
-                
-                | Layer | Type | What It Does | Cost |
-                |-------|------|--------------|------|
-                | **Layer 1** | Rule Engine | Type scale, AA check, spacing grid, color stats | FREE |
-                | **Layer 2** | Benchmark Research | Fetch live specs via Firecrawl (24h cache) | ~$0.001 |
-                | **Layer 3** | LLM Agents | Brand ID, Benchmark Advisor, Best Practices | ~$0.002 |
-                | **Layer 4** | HEAD Synthesizer | Combine all → Final recommendations | ~$0.001 |
-                
-                **Total Cost:** ~$0.003-0.004 per analysis
-                """)
-                
-                gr.Markdown("---")
-                
-                # Benchmark selection
-                gr.Markdown("### 📊 Select Design Systems to Compare Against")
-                gr.Markdown("*Choose which design systems to benchmark your tokens against:*")
-                
-                benchmark_checkboxes = gr.CheckboxGroup(
-                    choices=[
-                        ("🟢 Material Design 3 (Google)", "material_design_3"),
-                        ("🍎 Apple HIG", "apple_hig"),
-                        ("🛒 Shopify Polaris", "shopify_polaris"),
-                        ("🔵 Atlassian Design System", "atlassian_design"),
-                        ("🔷 IBM Carbon", "ibm_carbon"),
-                        ("🌊 Tailwind CSS", "tailwind_css"),
-                        ("🐜 Ant Design", "ant_design"),
-                        ("⚡ Chakra UI", "chakra_ui"),
-                    ],
-                    value=["material_design_3", "shopify_polaris", "atlassian_design"],
-                    label="Benchmarks",
-                )
-                
-                gr.Markdown("""
-                <small class="tip-text" style="color: #64748b;">
-                💡 <b>Tip:</b> Select 2-4 benchmarks for best results. More benchmarks = longer analysis time.
-                <br>
-                📦 Results are cached for 24 hours to speed up subsequent analyses.
-                </small>
-                """)
-
-            gr.Markdown("**Run Analysis** triggers the 4-layer architecture: Rule Engine (free) "
-                        "then AURORA + ATLAS + SENTINEL in parallel, then NEXUS compiles. "
-                        "Review scores, recommendations, and visual previews below, then apply your chosen upgrades.",
+            # ── Config + Run button ──
+            with gr.Row():
+                with gr.Column(scale=3):
+                    benchmark_checkboxes = gr.CheckboxGroup(
+                        choices=[
+                            ("🟢 Material Design 3", "material_design_3"),
+                            ("🍎 Apple HIG", "apple_hig"),
+                            ("🛒 Shopify Polaris", "shopify_polaris"),
+                            ("🔵 Atlassian", "atlassian_design"),
+                            ("🔷 IBM Carbon", "ibm_carbon"),
+                            ("🌊 Tailwind CSS", "tailwind_css"),
+                            ("🐜 Ant Design", "ant_design"),
+                            ("⚡ Chakra UI", "chakra_ui"),
+                        ],
+                        value=["material_design_3", "shopify_polaris", "atlassian_design"],
+                        label="📊 Benchmarks to Compare Against",
+                    )
+                with gr.Column(scale=1):
+                    analyze_btn_v2 = gr.Button(
+                        "🚀 Run Analysis",
+                        variant="primary",
+                        size="lg",
+                    )
+                    gr.Markdown(
+                        "<small style='color: #64748b;'>Cost: ~$0.003 per run</small>",
                         elem_classes=["section-desc"])
 
-            # Analyze button
-            with gr.Row():
-                analyze_btn_v2 = gr.Button(
-                    "🚀 Run Analysis",
-                    variant="primary",
-                    size="lg",
-                    scale=2
-                )
-            
-            # =============================================================
-            # ANALYSIS LOG
-            # =============================================================
-            with gr.Accordion("📋 Analysis Log", open=True):
-                gr.Markdown("*Real-time log of the analysis pipeline. Each layer reports its progress, results, and any errors. "
-                            "Scroll through to see detailed statistics and individual agent outputs.*",
-                            elem_classes=["section-desc"])
+            # ── Always-visible log panel ──
+            with gr.Group(elem_classes=["always-visible-log"]):
                 stage2_log = gr.Textbox(
-                    label="📋 Analysis Log (full step-by-step reasoning)",
-                    lines=30,
+                    label="📋 Live Analysis Log",
+                    lines=20,
                     interactive=False,
                     elem_classes=["log-container"]
                 )
-            
-            # =============================================================
-            # SCORES DASHBOARD
-            # =============================================================
-            gr.Markdown("---")
-            gr.Markdown("## 📊 Analysis Results")
-            gr.Markdown("*Overall scores for your design system across accessibility, consistency, brand alignment, and best practices. "
-                        "Each score is out of 100 — aim for 70+ in all categories. Priority actions below show the highest-impact fixes.*",
-                        elem_classes=["section-desc"])
 
-            scores_dashboard = gr.HTML(
-                value="<div class='placeholder-msg placeholder-lg'>Scores will appear after analysis...</div>",
-                label="Scores"
-            )
-            
-            # =============================================================
-            # PRIORITY ACTIONS
-            # =============================================================
-            priority_actions_html = gr.HTML(
-                value="<div class='placeholder-msg'>Priority actions will appear after analysis...</div>",
-                label="Priority Actions"
-            )
-            
-            # =============================================================
-            # BENCHMARK COMPARISON
-            # =============================================================
-            gr.Markdown("---")
-            gr.Markdown("## 📊 Benchmark Comparison")
-            gr.Markdown("*Your design tokens compared against industry-leading design systems (Material Design 3, Shopify Polaris, etc.). "
-                        "Shows how closely your type scale, spacing grid, and color palette align with each benchmark. "
-                        "Helps you decide which system to adopt or draw inspiration from.*",
-                        elem_classes=["section-desc"])
-            benchmark_comparison_md = gr.Markdown("*Benchmark comparison will appear after analysis*")
-            
-            # =============================================================
-            # COLOR RECOMMENDATIONS
-            # =============================================================
-            gr.Markdown("---")
-            gr.Markdown("## 🎨 Color Recommendations")
-            gr.Markdown("*AI-suggested color changes based on WCAG AA compliance, brand consistency, and industry best practices. "
-                        "Each recommendation shows the current color, the issue found, and a suggested replacement. "
-                        "Use the checkboxes to accept or reject individual changes before exporting.*",
-                        elem_classes=["section-desc"])
-            
-            # =============================================================
-            # TYPOGRAPHY SECTION
-            # =============================================================
-            gr.Markdown("---")
-            gr.Markdown("## 📐 Typography")
-            gr.Markdown("*Your detected type scale compared against standard ratios (Minor Third 1.2, Major Third 1.25, Perfect Fourth 1.333). "
-                        "The visual preview shows how text will look at each scale. Desktop and mobile sizes are shown separately — "
-                        "choose a scale below to apply to your exported tokens.*",
-                        elem_classes=["section-desc"])
+            # ═══════════════════════════════════════════════
+            # TAB-BASED RESULTS (reduce scrolling)
+            # ═══════════════════════════════════════════════
+            with gr.Tabs():
 
-            with gr.Accordion("👁️ Typography Visual Preview", open=True):
-                stage2_typography_preview = gr.HTML(
-                    value="<div class='placeholder-msg'>Typography preview will appear after analysis...</div>",
-                    label="Typography Preview"
-                )
-            
-            with gr.Row():
-                with gr.Column(scale=2):
-                    gr.Markdown("### 🖥️ Desktop (1440px)")
-                    typography_desktop = gr.Dataframe(
-                        headers=["Token", "Current", "Scale 1.2", "Scale 1.25 ⭐", "Scale 1.333", "Keep"],
-                        datatype=["str", "str", "str", "str", "str", "str"],
-                        label="Desktop Typography",
-                        interactive=False,
+                # ── Tab 1: Scores & Actions ──
+                with gr.Tab("📊 Scores & Actions"):
+                    gr.Markdown("*Overall scores for your design system. Each score is 0–100. "
+                                "Priority actions show the highest-impact fixes.*",
+                                elem_classes=["section-desc"])
+
+                    scores_dashboard = gr.HTML(
+                        value="<div class='placeholder-msg placeholder-lg'>Scores will appear after analysis...</div>",
+                        label="Scores"
                     )
-                
-                with gr.Column(scale=2):
-                    gr.Markdown("### 📱 Mobile (375px)")
-                    typography_mobile = gr.Dataframe(
-                        headers=["Token", "Current", "Scale 1.2", "Scale 1.25 ⭐", "Scale 1.333", "Keep"],
-                        datatype=["str", "str", "str", "str", "str", "str"],
-                        label="Mobile Typography",
-                        interactive=False,
+
+                    priority_actions_html = gr.HTML(
+                        value="<div class='placeholder-msg'>Priority actions will appear after analysis...</div>",
+                        label="Priority Actions"
                     )
-            
-            with gr.Row():
-                with gr.Column():
-                    gr.Markdown("### Select Type Scale Option")
-                    type_scale_radio = gr.Radio(
-                        choices=["Keep Current", "Scale 1.2 (Minor Third)", "Scale 1.25 (Major Third) ⭐", "Scale 1.333 (Perfect Fourth)"],
-                        value="Scale 1.25 (Major Third) ⭐",
-                        label="Type Scale",
-                        interactive=True,
+
+                    # As-Is vs To-Be summary cards
+                    stage2_asis_tobe = gr.HTML(
+                        value="<div class='placeholder-msg'>As-Is → To-Be transformation summary will appear after analysis...</div>",
+                        label="Transformation Summary"
                     )
-                    gr.Markdown("*Font family will be preserved. Sizes rounded to even numbers.*")
-            
-            # =============================================================
-            # COLORS SECTION - Base Colors + Ramps + LLM Recommendations
-            # =============================================================
-            gr.Markdown("---")
-            gr.Markdown("## 🎨 Colors")
-            gr.Markdown("*Complete color analysis: base colors extracted from your site, AI-generated semantic color ramps (50–950 shades), "
-                        "and LLM-powered recommendations for accessibility fixes. The visual preview groups colors by semantic role "
-                        "(brand, text, background, border, feedback).*",
-                        elem_classes=["section-desc"])
 
-            # ── Color Naming Convention Preview (visible BEFORE export) ──
-            with gr.Accordion("🏷️ Color Naming Convention — Preview Before Export", open=True):
-                gr.Markdown("**Choose how colors are named in your export.** Preview the classification to verify names before exporting. "
-                            "100% rule-based — no LLM involved. Change convention anytime and re-preview.",
-                            elem_classes=["section-desc"])
-                with gr.Row():
-                    naming_convention_stage2 = gr.Dropdown(
-                        choices=["semantic", "tailwind", "material"],
-                        value="semantic",
-                        label="🎨 Naming Convention",
-                        info="semantic = color.brand.primary | tailwind = brand-primary | material = color.brand.primary",
-                        scale=2,
+                # ── Tab 2: Benchmarks ──
+                with gr.Tab("📈 Benchmarks"):
+                    gr.Markdown("*Your tokens compared against industry design systems. Visual cards show per-category match.*",
+                                elem_classes=["section-desc"])
+                    benchmark_comparison_md = gr.HTML(
+                        value="<div class='placeholder-msg'>Benchmark comparison will appear after analysis...</div>",
+                        label="Benchmarks"
                     )
-                    preview_colors_btn_stage2 = gr.Button("👁️ Preview Color Names", variant="secondary", scale=1)
-                color_preview_output_stage2 = gr.Textbox(
-                    label="Color Classification Preview (Rule-Based — No LLM)",
-                    lines=18,
-                    max_lines=40,
-                    interactive=False,
-                    placeholder="Click 'Preview Color Names' above to see how colors will be named in the export. "
-                                "This runs AFTER extraction (Stage 1). No LLM cost.",
-                )
 
-            # LLM Recommendations Section (NEW)
-            with gr.Accordion("🤖 LLM Color Recommendations", open=True):
-                gr.Markdown("*Four AI agents analyzed your colors: **Brand Identifier** (detects primary/secondary brand colors), "
-                            "**Benchmark Advisor** (compares to design system standards), **Best Practices Auditor** (WCAG, contrast, naming), "
-                            "and **Head Synthesizer** (combines all findings into actionable suggestions). Use the table to accept or reject each change.*",
-                            elem_classes=["section-desc"])
-                
-                llm_color_recommendations = gr.HTML(
-                    value="<div class='placeholder-msg'>LLM recommendations will appear after analysis...</div>",
-                    label="LLM Recommendations"
-                )
-                
-                # Accept/Reject table for color recommendations
-                color_recommendations_table = gr.Dataframe(
-                    headers=["Accept", "Role", "Current", "Issue", "Suggested", "Contrast"],
-                    datatype=["bool", "str", "str", "str", "str", "str"],
-                    label="Color Recommendations",
-                    interactive=True,
-                    col_count=(6, "fixed"),
-                )
-            
-            # Visual Preview
-            with gr.Accordion("👁️ Color Ramps Visual Preview (Semantic Groups)", open=True):
-                gr.Markdown("*AI-generated color ramps expanding each base color into a 50–950 shade scale (similar to Tailwind CSS). "
-                            "Colors are grouped by semantic role. These ramps will be included in your final export if the checkbox below is enabled.*",
-                            elem_classes=["section-desc"])
-                stage2_color_ramps_preview = gr.HTML(
-                    value="<div class='placeholder-msg'>Color ramps preview will appear after analysis...</div>",
-                    label="Color Ramps Preview"
-                )
+                # ── Tab 3: Typography ──
+                with gr.Tab("📐 Typography"):
+                    gr.Markdown("*Type scale analysis with standard ratio comparisons. Choose a scale to apply.*",
+                                elem_classes=["section-desc"])
 
-            gr.Markdown("**Base Colors** — Primary colors extracted from your site, organized by frequency and semantic role:",
-                        elem_classes=["section-desc"])
-            base_colors_display = gr.Markdown("*Base colors will appear after analysis*")
+                    with gr.Accordion("👁️ Typography Visual Preview", open=True):
+                        stage2_typography_preview = gr.HTML(
+                            value="<div class='placeholder-msg'>Typography preview will appear after analysis...</div>",
+                            label="Typography Preview"
+                        )
 
-            gr.Markdown("---")
+                    with gr.Row():
+                        with gr.Column(scale=2):
+                            gr.Markdown("### 🖥️ Desktop (1440px)")
+                            typography_desktop = gr.Dataframe(
+                                headers=["Token", "Current", "Scale 1.2", "Scale 1.25 ⭐", "Scale 1.333", "Keep"],
+                                datatype=["str", "str", "str", "str", "str", "str"],
+                                label="Desktop Typography",
+                                interactive=False,
+                            )
+                        with gr.Column(scale=2):
+                            gr.Markdown("### 📱 Mobile (375px)")
+                            typography_mobile = gr.Dataframe(
+                                headers=["Token", "Current", "Scale 1.2", "Scale 1.25 ⭐", "Scale 1.333", "Keep"],
+                                datatype=["str", "str", "str", "str", "str", "str"],
+                                label="Mobile Typography",
+                                interactive=False,
+                            )
 
-            gr.Markdown("**Color Ramps** — Full shade tables (50–950) generated from each base color:",
-                        elem_classes=["section-desc"])
-            color_ramps_display = gr.Markdown("*Color ramps will appear after analysis*")
-            
-            color_ramps_checkbox = gr.Checkbox(
-                label="✓ Generate color ramps (keeps base colors, adds 50-950 shades)",
-                value=True,
-            )
-            
-            # =============================================================
-            # SPACING SECTION
-            # =============================================================
-            gr.Markdown("---")
-            gr.Markdown("## 📏 Spacing (Rule-Based)")
-            gr.Markdown("*Your detected spacing values compared against standard 8px and 4px grid systems. "
-                        "Consistent spacing creates visual rhythm and alignment. The 8px grid (8, 16, 24, 32...) is the industry standard — "
-                        "select your preferred system below to normalize spacing in the export.*",
-                        elem_classes=["section-desc"])
+                    with gr.Row():
+                        with gr.Column():
+                            type_scale_radio = gr.Radio(
+                                choices=["Keep Current", "Scale 1.2 (Minor Third)", "Scale 1.25 (Major Third) ⭐", "Scale 1.333 (Perfect Fourth)"],
+                                value="Scale 1.25 (Major Third) ⭐",
+                                label="Select Type Scale",
+                                interactive=True,
+                            )
+                            gr.Markdown("*Font family preserved. Sizes rounded to even numbers.*",
+                                        elem_classes=["section-desc"])
 
-            with gr.Row():
-                with gr.Column(scale=2):
-                    spacing_comparison = gr.Dataframe(
-                        headers=["Current", "8px Grid", "4px Grid"],
-                        datatype=["str", "str", "str"],
-                        label="Spacing Comparison",
-                        interactive=False,
+                # ── Tab 4: Colors ──
+                with gr.Tab("🎨 Colors"):
+                    gr.Markdown("*Complete color analysis: base colors, AI ramps (50–950), and recommendations.*",
+                                elem_classes=["section-desc"])
+
+                    # Color Naming Convention Preview
+                    with gr.Accordion("🏷️ Naming Convention — Preview Before Export", open=True):
+                        gr.Markdown("**Choose how colors are named.** 100% rule-based — no LLM.",
+                                    elem_classes=["section-desc"])
+                        with gr.Row():
+                            naming_convention_stage2 = gr.Dropdown(
+                                choices=["semantic", "tailwind", "material"],
+                                value="semantic",
+                                label="🎨 Naming Convention",
+                                info="semantic = color.brand.primary | tailwind = brand-primary | material = color.brand.primary",
+                                scale=2,
+                            )
+                            preview_colors_btn_stage2 = gr.Button("👁️ Preview", variant="secondary", scale=1)
+                        color_preview_output_stage2 = gr.Textbox(
+                            label="Color Classification Preview (Rule-Based)",
+                            lines=18, max_lines=40, interactive=False,
+                            placeholder="Click 'Preview' to see how colors will be named in the export.",
+                        )
+
+                    # LLM Recommendations
+                    with gr.Accordion("🤖 LLM Color Recommendations", open=True):
+                        gr.Markdown("*AI-suggested accessibility fixes and improvements.*",
+                                    elem_classes=["section-desc"])
+                        llm_color_recommendations = gr.HTML(
+                            value="<div class='placeholder-msg'>LLM recommendations will appear after analysis...</div>",
+                            label="LLM Recommendations"
+                        )
+                        color_recommendations_table = gr.Dataframe(
+                            headers=["Accept", "Role", "Current", "Issue", "Suggested", "Contrast"],
+                            datatype=["bool", "str", "str", "str", "str", "str"],
+                            label="Color Recommendations",
+                            interactive=True,
+                            col_count=(6, "fixed"),
+                        )
+
+                    # Color Ramps
+                    with gr.Accordion("👁️ Color Ramps (Semantic Groups)", open=True):
+                        stage2_color_ramps_preview = gr.HTML(
+                            value="<div class='placeholder-msg'>Color ramps preview will appear after analysis...</div>",
+                            label="Color Ramps Preview"
+                        )
+
+                    base_colors_display = gr.Markdown("*Base colors will appear after analysis*")
+                    color_ramps_display = gr.Markdown("*Color ramps will appear after analysis*")
+                    color_ramps_checkbox = gr.Checkbox(
+                        label="✓ Generate color ramps (keeps base colors, adds 50-950 shades)",
+                        value=True,
                     )
-                
-                with gr.Column(scale=1):
-                    spacing_radio = gr.Radio(
-                        choices=["Keep Current", "8px Base Grid ⭐", "4px Base Grid"],
-                        value="8px Base Grid ⭐",
-                        label="Spacing System",
-                        interactive=True,
-                    )
-            
-            # =============================================================
-            # RADIUS SECTION
-            # =============================================================
-            gr.Markdown("---")
-            gr.Markdown("## 🔘 Border Radius (Rule-Based)")
-            gr.Markdown("*Border radius values detected from your site, mapped to standard design tokens (radius.none → radius.full). "
-                        "Consistent radius tokens ensure buttons, cards, and modals share a cohesive visual language. "
-                        "Values are sorted from sharp corners to fully rounded.*",
-                        elem_classes=["section-desc"])
 
-            radius_display = gr.Markdown("*Radius tokens will appear after analysis*")
-            
-            # =============================================================
-            # SHADOWS SECTION
-            # =============================================================
-            gr.Markdown("---")
-            gr.Markdown("## 🌫️ Shadows (Rule-Based)")
-            gr.Markdown("*Box shadow values detected from your site, organized into elevation tokens (shadow.xs → shadow.2xl). "
-                        "A well-defined shadow scale creates depth hierarchy — subtle shadows for cards, deeper shadows for modals and popovers. "
-                        "Exported tokens are ready for Figma elevation styles.*",
-                        elem_classes=["section-desc"])
+                # ── Tab 5: Spacing / Radius / Shadows ──
+                with gr.Tab("📏 Spacing · Radius · Shadows"):
 
-            shadows_display = gr.Markdown("*Shadow tokens will appear after analysis*")
-            
-            # =============================================================
-            # APPLY SECTION
-            # =============================================================
-            gr.Markdown("---")
-            gr.Markdown("**Apply** saves your chosen type scale, spacing grid, color ramp, and LLM recommendation selections. "
-                        "These choices will be baked into your Stage 3 export. **Reset** reverts all selections back to the original extracted values.",
-                        elem_classes=["section-desc"])
+                    gr.Markdown("## 📏 Spacing")
+                    gr.Markdown("*Spacing values compared against 8px and 4px grids.*",
+                                elem_classes=["section-desc"])
+                    with gr.Row():
+                        with gr.Column(scale=2):
+                            spacing_comparison = gr.Dataframe(
+                                headers=["Current", "8px Grid", "4px Grid"],
+                                datatype=["str", "str", "str"],
+                                label="Spacing Comparison",
+                                interactive=False,
+                            )
+                        with gr.Column(scale=1):
+                            spacing_radio = gr.Radio(
+                                choices=["Keep Current", "8px Base Grid ⭐", "4px Base Grid"],
+                                value="8px Base Grid ⭐",
+                                label="Spacing System",
+                                interactive=True,
+                            )
 
+                    gr.Markdown("---")
+                    gr.Markdown("## 🔘 Border Radius")
+                    gr.Markdown("*Radius tokens mapped to standard scale (none → full).*",
+                                elem_classes=["section-desc"])
+                    radius_display = gr.Markdown("*Radius tokens will appear after analysis*")
+
+                    gr.Markdown("---")
+                    gr.Markdown("## 🌫️ Shadows")
+                    gr.Markdown("*Elevation tokens (shadow.xs → shadow.2xl).*",
+                                elem_classes=["section-desc"])
+                    shadows_display = gr.Markdown("*Shadow tokens will appear after analysis*")
+
+            # ── Apply / Reset ──
+            gr.Markdown("---")
+            gr.Markdown("**Apply** saves your choices to the export. **Reset** reverts to extracted values.",
+                        elem_classes=["section-desc"])
             with gr.Row():
                 apply_upgrades_btn = gr.Button("✨ Apply Selected Upgrades", variant="primary", scale=2)
                 reset_btn = gr.Button("↩️ Reset to Original", variant="secondary", scale=1)
-            
             apply_status = gr.Markdown("", elem_classes=["apply-status-box"])
         
         # =================================================================
@@ -4685,26 +4822,27 @@ def create_ui():
         # =================================================================
         # EVENT HANDLERS
         # =================================================================
-        
+
         # Store data for viewport toggle
         desktop_data = gr.State({})
         mobile_data = gr.State({})
-        
-        # Discover pages
+
+        # ── Discover pages ──
         discover_btn.click(
             fn=discover_pages,
             inputs=[url_input],
             outputs=[discover_status, log_output, pages_table],
         ).then(
-            fn=lambda: (gr.update(visible=True), gr.update(visible=True)),
-            outputs=[pages_table, extract_btn],
+            fn=lambda: (gr.update(visible=True), gr.update(visible=True),
+                        _render_stepper(active=2, completed=[1])),
+            outputs=[pages_table, extract_btn, progress_stepper],
         )
-        
-        # Extract tokens
+
+        # ── Extract tokens ──
         extract_btn.click(
             fn=extract_tokens,
             inputs=[pages_table],
-            outputs=[extraction_status, log_output, desktop_data, mobile_data, 
+            outputs=[extraction_status, log_output, desktop_data, mobile_data,
                      stage1_typography_preview, stage1_colors_preview,
                      stage1_semantic_preview,
                      stage1_spacing_preview, stage1_radius_preview, stage1_shadows_preview],
@@ -4713,18 +4851,19 @@ def create_ui():
             inputs=[desktop_data],
             outputs=[colors_table, typography_table, spacing_table, radius_table],
         ).then(
-            fn=lambda: (gr.update(open=True), gr.update(open=True)),
-            outputs=[stage1_accordion, stage2_accordion],
+            fn=lambda: (gr.update(open=True), gr.update(open=True),
+                        _render_stepper(active=3, completed=[1, 2])),
+            outputs=[stage1_accordion, stage2_accordion, progress_stepper],
         )
 
-        # Viewport toggle
+        # ── Viewport toggle ──
         viewport_toggle.change(
             fn=switch_viewport,
             inputs=[viewport_toggle],
             outputs=[colors_table, typography_table, spacing_table, radius_table],
         )
-        
-        # Stage 2: NEW Architecture Analyze
+
+        # ── Stage 2: Analyze ──
         analyze_btn_v2.click(
             fn=run_stage2_analysis_v2,
             inputs=[benchmark_checkboxes],
@@ -4746,35 +4885,38 @@ def create_ui():
                 radius_display,
                 shadows_display,
                 color_preview_output_stage2,
+                stage2_asis_tobe,
             ],
         ).then(
-            fn=lambda: gr.update(open=True),
-            outputs=[stage3_accordion],
+            fn=lambda: (gr.update(open=True),
+                        _render_stepper(active=4, completed=[1, 2, 3])),
+            outputs=[stage3_accordion, progress_stepper],
         )
 
-        # Stage 2: Apply upgrades
+        # ── Stage 2: Apply upgrades ──
         apply_upgrades_btn.click(
             fn=apply_selected_upgrades,
             inputs=[type_scale_radio, spacing_radio, color_ramps_checkbox, color_recommendations_table],
             outputs=[apply_status, stage2_log],
         ).then(
-            fn=lambda: gr.update(open=True),
-            outputs=[stage3_accordion],
+            fn=lambda: (gr.update(open=True),
+                        _render_stepper(active=5, completed=[1, 2, 3, 4])),
+            outputs=[stage3_accordion, progress_stepper],
         )
 
-        # Stage 2: Reset to original
+        # ── Stage 2: Reset to original ──
         reset_btn.click(
             fn=reset_to_original,
             outputs=[type_scale_radio, spacing_radio, color_ramps_checkbox, apply_status, stage2_log],
         )
-        
-        # Stage 1: Download JSON
+
+        # ── Stage 1: Download JSON ──
         download_stage1_btn.click(
             fn=export_stage1_json,
             outputs=[export_output],
         )
-        
-        # Proceed to Stage 2 button
+
+        # ── Proceed to Stage 2 ──
         proceed_stage2_btn.click(
             fn=lambda: gr.update(open=True),
             outputs=[stage2_accordion],
@@ -4786,11 +4928,10 @@ def create_ui():
         
         gr.Markdown("""
         ---
-        **Design System Extractor v3** | Built with Playwright + Firecrawl + HuggingFace
-
-        *A multi-agent co-pilot for design system recovery and modernization.*
-
-        **Architecture:** Rule Engine (FREE) + Benchmark Research + ReAct LLM Agents (AURORA | ATLAS | SENTINEL | NEXUS)
+        <div style="text-align: center; color: #94a3b8; font-size: 12px; padding: 12px 0;">
+        <strong>Design System Extractor v3</strong> · Playwright + Firecrawl + HuggingFace<br/>
+        Rule Engine (FREE) + ReAct LLM Agents (AURORA · ATLAS · SENTINEL · NEXUS)
+        </div>
         """)
     
     return app
