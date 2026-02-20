@@ -2847,10 +2847,11 @@ def _get_radius_token_name(value_str, seen_names: dict = None) -> str:
                 base_name = name
                 break
 
-    # Handle duplicates: if two radii map to same name, append px value
+    # Handle duplicates: if two radii map to same semantic name, skip the duplicate.
+    # Old behavior appended ".{px}" which created invalid nested DTCG structures.
     if seen_names is not None:
         if base_name in seen_names:
-            return f"{base_name}.{int(px)}"
+            return None  # Signal caller to skip this duplicate radius
         seen_names[base_name] = True
     return base_name
 
@@ -2911,13 +2912,22 @@ def _flat_key_to_nested(flat_key: str, value: dict, root: dict):
 
     Example: _flat_key_to_nested('color.brand.primary', token, {})
     Result: {'color': {'brand': {'primary': token}}}
+
+    Safety: If a path segment is already a DTCG leaf token ($type/$value),
+    the new token is SKIPPED to avoid creating invalid nested structures
+    like: {"$type":"color","$value":"#abc","2":{"$type":"color","$value":"#def"}}
     """
     parts = flat_key.split('.')
     current = root
     for part in parts[:-1]:
         if part not in current:
             current[part] = {}
-        current = current[part]
+        node = current[part]
+        # Guard: don't navigate into an existing leaf token
+        if isinstance(node, dict) and ('$type' in node or '$value' in node):
+            # This path would nest a child inside a DTCG leaf — skip silently
+            return
+        current = node
     current[parts[-1]] = value
 
 
@@ -3265,7 +3275,8 @@ def export_stage1_json(convention: str = "semantic"):
         seen_radius = {}
         for name, r in state.desktop_normalized.radius.items():
             token_name = _get_radius_token_name(r.value, seen_radius)
-            # Convert "radius.md" to nested: radius.md (keep as "radius" for consistency)
+            if token_name is None:
+                continue  # Duplicate radius — skip
             flat_key = token_name
             dtcg_token = _to_dtcg_token(r.value, "dimension", description="Extracted from site")
             _flat_key_to_nested(flat_key, dtcg_token, result)
@@ -3399,8 +3410,10 @@ def export_tokens_json(convention: str = "semantic"):
         return "body"
 
     # Desktop typography — W3C DTCG format
+    MIN_FONT_SIZE_DESKTOP = 10  # Floor: no text style below 10px
+    MIN_FONT_SIZE_MOBILE = 10   # Floor: same for mobile
     if ratio:
-        scales = [int(round(base_size * (ratio ** (8-i)) / 2) * 2) for i in range(13)]
+        scales = [max(MIN_FONT_SIZE_DESKTOP, int(round(base_size * (ratio ** (8-i)) / 2) * 2)) for i in range(13)]
         for i, token_name in enumerate(token_names):
             tier = _tier_from_token(token_name)
             flat_key = f"{token_name}.desktop"
@@ -3434,7 +3447,7 @@ def export_tokens_json(convention: str = "semantic"):
     # Mobile typography — W3C DTCG format
     if ratio:
         mobile_factor = 0.875
-        scales = [int(round(base_size * mobile_factor * (ratio ** (8-i)) / 2) * 2) for i in range(13)]
+        scales = [max(MIN_FONT_SIZE_MOBILE, int(round(base_size * mobile_factor * (ratio ** (8-i)) / 2) * 2)) for i in range(13)]
         for i, token_name in enumerate(token_names):
             tier = _tier_from_token(token_name)
             flat_key = f"{token_name}.mobile"
@@ -3522,7 +3535,8 @@ def export_tokens_json(convention: str = "semantic"):
         seen_radius = {}
         for name, r in state.desktop_normalized.radius.items():
             token_name = _get_radius_token_name(r.value, seen_radius)
-            # DTCG uses "dimension" for radii, not "borderRadius"
+            if token_name is None:
+                continue  # Duplicate radius — skip
             dtcg_token = _to_dtcg_token(r.value, "dimension")
             _flat_key_to_nested(token_name, dtcg_token, result)
             token_count += 1

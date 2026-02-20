@@ -791,17 +791,22 @@ figma.ui.onmessage = async function(msg) {
       var sectionGap = 80;
       var itemGap = 16;
 
-      // Load Inter font for labels
+      // Load Inter font for labels (with fallbacks for environments missing styles)
+      var headingStyle = 'Regular';
       await figma.loadFontAsync({ family: 'Inter', style: 'Regular' });
-      await figma.loadFontAsync({ family: 'Inter', style: 'Bold' });
-      await figma.loadFontAsync({ family: 'Inter', style: 'SemiBold' });
+      try {
+        await figma.loadFontAsync({ family: 'Inter', style: 'Bold' });
+        headingStyle = 'Bold';
+      } catch (e) {
+        console.warn('Inter Bold not available, using Regular for headings');
+      }
 
       // === COLORS SECTION ===
       if (tokens.colors.length > 0) {
         // Section title
         var colorTitle = figma.createText();
         colorTitle.characters = 'COLORS';
-        colorTitle.fontName = { family: 'Inter', style: 'Bold' };
+        colorTitle.fontName = { family: 'Inter', style: headingStyle };
         colorTitle.fontSize = 24;
         colorTitle.x = xOffset;
         colorTitle.y = yOffset;
@@ -860,7 +865,7 @@ figma.ui.onmessage = async function(msg) {
       if (tokens.typography.length > 0) {
         var typoTitle = figma.createText();
         typoTitle.characters = 'TYPOGRAPHY';
-        typoTitle.fontName = { family: 'Inter', style: 'Bold' };
+        typoTitle.fontName = { family: 'Inter', style: headingStyle };
         typoTitle.fontSize = 24;
         typoTitle.x = xOffset;
         typoTitle.y = yOffset;
@@ -916,7 +921,7 @@ figma.ui.onmessage = async function(msg) {
       if (tokens.spacing.length > 0) {
         var spacingTitle = figma.createText();
         spacingTitle.characters = 'SPACING';
-        spacingTitle.fontName = { family: 'Inter', style: 'Bold' };
+        spacingTitle.fontName = { family: 'Inter', style: headingStyle };
         spacingTitle.fontSize = 24;
         spacingTitle.x = xOffset;
         spacingTitle.y = yOffset;
@@ -956,7 +961,7 @@ figma.ui.onmessage = async function(msg) {
       if (tokens.borderRadius.length > 0) {
         var radiusTitle = figma.createText();
         radiusTitle.characters = 'BORDER RADIUS';
-        radiusTitle.fontName = { family: 'Inter', style: 'Bold' };
+        radiusTitle.fontName = { family: 'Inter', style: headingStyle };
         radiusTitle.fontSize = 24;
         radiusTitle.x = xOffset;
         radiusTitle.y = yOffset;
@@ -999,7 +1004,7 @@ figma.ui.onmessage = async function(msg) {
       if (tokens.shadows.length > 0) {
         var shadowTitle = figma.createText();
         shadowTitle.characters = 'SHADOWS';
-        shadowTitle.fontName = { family: 'Inter', style: 'Bold' };
+        shadowTitle.fontName = { family: 'Inter', style: headingStyle };
         shadowTitle.fontSize = 24;
         shadowTitle.x = xOffset;
         shadowTitle.y = yOffset;

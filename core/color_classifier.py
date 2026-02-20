@@ -46,7 +46,7 @@ ROLE_SHADE_NAMES = {
     "brand": ["primary", "secondary", "accent"],
     "text": ["primary", "secondary", "muted"],
     "bg": ["primary", "secondary", "tertiary"],
-    "border": ["light", "DEFAULT", "dark"],
+    "border": ["primary", "secondary", "muted"],
     "feedback": ["error", "warning", "success", "info"],
 }
 
@@ -581,13 +581,11 @@ def _assign_names(colors: list[dict], convention: str, log) -> list[ClassifiedCo
             else:
                 token_name = f"{prefix}{cat}{sep}{role}"
 
-            # Collision guard (should be rare for non-palette)
+            # Collision guard — skip duplicates instead of appending .N suffix
+            # (the .N suffix creates invalid nested DTCG when _flat_key_to_nested splits by ".")
             if token_name in used_names:
-                base_name = token_name
-                suffix = 2
-                while token_name in used_names:
-                    token_name = f"{base_name}{sep}{suffix}"
-                    suffix += 1
+                log(f"[SKIP] {c['hex']} → {token_name} collision, already taken — dropping")
+                continue
             used_names.add(token_name)
 
             evidence = _build_evidence(c)
@@ -626,11 +624,12 @@ def _assign_palette_names(
     log,
 ) -> list[ClassifiedColor]:
     """
-    Assign palette names by hue family with unique shade per color.
+    Assign palette names by hue family with lightness-aware shade mapping.
 
-    For N colors in a hue family, picks N evenly-spaced shade slots
-    sorted by lightness (lightest color → lightest shade).
-    No .2/.3 suffixes ever.
+    Each color gets a shade (50-900) based on its ACTUAL luminance, not a
+    fixed slot.  Lightest colors → lowest shade numbers (50/100), darkest → 800/900.
+    If two colors in the same hue map to the same shade, the less-frequent one
+    is nudged to the nearest free shade.  No .2/.3 suffixes ever.
     """
     # Group by hue family
     by_hue = {}
@@ -643,27 +642,43 @@ def _assign_palette_names(
     result = []
 
     for hue_fam, hue_colors in sorted(by_hue.items()):
-        n = len(hue_colors)
-
-        # Sort by luminance: lightest first → gets lightest shade slot
+        # Sort by luminance: lightest first
         hue_colors.sort(key=lambda x: -x["luminance"])
 
-        # Pick N evenly-spaced shade slots from the 10 available
-        if n == 1:
-            slots = ["500"]
-        elif n == 2:
-            slots = ["300", "700"]
-        elif n == 3:
-            slots = ["200", "500", "800"]
-        elif n == 4:
-            slots = ["100", "400", "600", "900"]
-        else:
-            # For n > 4 (shouldn't happen with cap=4, but safety)
-            step = max(1, len(_SHADE_SLOTS) // n)
-            slots = _SHADE_SLOTS[::step][:n]
+        # Map each color's luminance to the nearest shade slot.
+        # Luminance 0.95+ → 50, 0.0 → 900.  Linear interpolation.
+        def _luminance_to_shade(lum: float) -> str:
+            # Clamp luminance to [0, 1]
+            lum = max(0.0, min(1.0, lum))
+            # Map: high luminance → low shade, low luminance → high shade
+            # 50 ← 0.95+, 100 ← ~0.85, 200 ← ~0.72, ..., 900 ← 0.0-0.05
+            shade_idx = int((1.0 - lum) * (len(_SHADE_SLOTS) - 1) + 0.5)
+            shade_idx = max(0, min(len(_SHADE_SLOTS) - 1, shade_idx))
+            return _SHADE_SLOTS[shade_idx]
 
-        for idx, c in enumerate(hue_colors):
-            role = slots[idx] if idx < len(slots) else str((idx + 1) * 100)
+        # Assign shades, resolving collisions within the same hue family
+        used_shades_in_hue = set()
+        assignments = []  # list of (color_dict, shade_str)
+
+        for c in hue_colors:
+            shade = _luminance_to_shade(c["luminance"])
+            if shade in used_shades_in_hue:
+                # Nudge to nearest free shade
+                shade_int = _SHADE_SLOTS.index(shade)
+                found = False
+                for offset in range(1, len(_SHADE_SLOTS)):
+                    for direction in (+1, -1):
+                        cand = shade_int + offset * direction
+                        if 0 <= cand < len(_SHADE_SLOTS) and _SHADE_SLOTS[cand] not in used_shades_in_hue:
+                            shade = _SHADE_SLOTS[cand]
+                            found = True
+                            break
+                    if found:
+                        break
+            used_shades_in_hue.add(shade)
+            assignments.append((c, shade))
+
+        for c, role in assignments:
 
             if convention == "tailwind":
                 token_name = f"{hue_fam}{sep}{role}"

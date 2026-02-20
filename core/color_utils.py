@@ -340,7 +340,8 @@ def categorize_color(color: str) -> str:
     h, s, l = parsed.hsl
     
     # Neutrals (low saturation or extreme lightness)
-    if s < 10 or l < 5 or l > 95:
+    # s < 20 catches desaturated grays with a slight tint (e.g., #6f7597 S=16%)
+    if s < 20 or l < 5 or l > 95:
         return "neutral"
     
     # Categorize by hue
