@@ -139,13 +139,19 @@ class BenchmarkData:
     # Extracted specifications
     typography: dict = field(default_factory=dict)
     # Expected: {scale_ratio, base_size, sizes[], font_family, line_height_body}
-    
+
     spacing: dict = field(default_factory=dict)
     # Expected: {base, scale[], grid}
-    
+
     colors: dict = field(default_factory=dict)
     # Expected: {palette_size, uses_ramps, ramp_steps}
-    
+
+    radius: dict = field(default_factory=dict)
+    # Expected: {tiers, values[], strategy, grid}
+
+    shadows: dict = field(default_factory=dict)
+    # Expected: {levels, blur_range[], system}
+
     # Metadata
     fetched_at: str = ""
     confidence: str = "low"  # high, medium, low
@@ -162,6 +168,8 @@ class BenchmarkData:
             "typography": self.typography,
             "spacing": self.spacing,
             "colors": self.colors,
+            "radius": self.radius,
+            "shadows": self.shadows,
             "fetched_at": self.fetched_at,
             "confidence": self.confidence,
             "best_for": self.best_for,
@@ -170,20 +178,28 @@ class BenchmarkData:
 
 @dataclass
 class BenchmarkComparison:
-    """Comparison result between user's tokens and a benchmark."""
+    """Comparison result between user's tokens and a benchmark — ALL 6 categories."""
     benchmark: BenchmarkData
     similarity_score: float  # Lower = more similar
-    
+
     # Individual comparisons
     type_ratio_diff: float
     base_size_diff: int
     spacing_grid_diff: int
-    
-    # Match percentages
+
+    # Match percentages — all 6 categories
     type_match_pct: float
     spacing_match_pct: float
-    overall_match_pct: float
-    
+    color_match_pct: float = 50.0
+    radius_match_pct: float = 50.0
+    shadow_match_pct: float = 50.0
+    overall_match_pct: float = 0.0
+
+    # Gap descriptions per category
+    color_gap: str = ""
+    radius_gap: str = ""
+    shadow_gap: str = ""
+
     def to_dict(self) -> dict:
         return {
             "name": self.benchmark.name,
@@ -203,11 +219,17 @@ class BenchmarkComparison:
                     "diff": self.spacing_grid_diff,
                     "match_pct": round(self.spacing_match_pct, 1),
                 },
+                "colors": {"match_pct": round(self.color_match_pct, 1), "gap": self.color_gap},
+                "radius": {"match_pct": round(self.radius_match_pct, 1), "gap": self.radius_gap},
+                "shadows": {"match_pct": round(self.shadow_match_pct, 1), "gap": self.shadow_gap},
             },
             "benchmark_values": {
                 "type_ratio": self.benchmark.typography.get("scale_ratio"),
                 "base_size": self.benchmark.typography.get("base_size"),
                 "spacing_grid": self.benchmark.spacing.get("base"),
+                "color_palette_size": self.benchmark.colors.get("palette_size"),
+                "radius_tiers": self.benchmark.radius.get("tiers") if hasattr(self.benchmark, 'radius') and self.benchmark.radius else None,
+                "shadow_levels": self.benchmark.shadows.get("levels") if hasattr(self.benchmark, 'shadows') and self.benchmark.shadows else None,
             },
             "best_for": self.benchmark.best_for,
             "confidence": self.benchmark.confidence,
@@ -274,6 +296,8 @@ class BenchmarkCache:
             typography=entry.get("typography", {}),
             spacing=entry.get("spacing", {}),
             colors=entry.get("colors", {}),
+            radius=entry.get("radius", {}),
+            shadows=entry.get("shadows", {}),
             fetched_at=entry.get("fetched_at", ""),
             confidence=entry.get("confidence", "low"),
             source_urls=entry.get("source_urls", []),
@@ -315,42 +339,58 @@ FALLBACK_BENCHMARKS = {
     "material_design_3": {
         "typography": {"scale_ratio": 1.2, "base_size": 16, "font_family": "Roboto", "line_height_body": 1.5},
         "spacing": {"base": 8, "scale": [0, 4, 8, 12, 16, 24, 32, 48, 64], "grid": "8px"},
-        "colors": {"palette_size": 13, "uses_ramps": True},
+        "colors": {"palette_size": 13, "uses_ramps": True, "ramp_steps": 10},
+        "radius": {"tiers": 5, "values": [0, 4, 8, 12, 28], "strategy": "expressive", "grid": "base-4"},
+        "shadows": {"levels": 6, "blur_range": [0, 3, 6, 8, 12, 16], "system": "elevation dp (0-24dp)"},
     },
     "apple_hig": {
         "typography": {"scale_ratio": 1.19, "base_size": 17, "font_family": "SF Pro", "line_height_body": 1.47},
         "spacing": {"base": 4, "scale": [0, 4, 8, 12, 16, 20, 24, 32, 40], "grid": "4px"},
-        "colors": {"palette_size": 9, "uses_ramps": True},
+        "colors": {"palette_size": 9, "uses_ramps": True, "ramp_steps": 6},
+        "radius": {"tiers": 4, "values": [0, 6, 10, 14], "strategy": "rounded", "grid": "custom"},
+        "shadows": {"levels": 4, "blur_range": [2, 8, 20, 40], "system": "semantic (subtle/medium/prominent)"},
     },
     "shopify_polaris": {
         "typography": {"scale_ratio": 1.25, "base_size": 16, "font_family": "Inter", "line_height_body": 1.5},
         "spacing": {"base": 4, "scale": [0, 4, 8, 12, 16, 20, 24, 32, 40, 48, 64], "grid": "4px"},
-        "colors": {"palette_size": 11, "uses_ramps": True},
+        "colors": {"palette_size": 11, "uses_ramps": True, "ramp_steps": 11},
+        "radius": {"tiers": 4, "values": [0, 4, 8, 12], "strategy": "moderate", "grid": "base-4"},
+        "shadows": {"levels": 5, "blur_range": [0, 4, 8, 16, 24], "system": "elevation tokens (transparent-500)"},
     },
     "atlassian_design": {
         "typography": {"scale_ratio": 1.14, "base_size": 14, "font_family": "Inter", "line_height_body": 1.43},
         "spacing": {"base": 8, "scale": [0, 4, 8, 12, 16, 24, 32, 40, 48], "grid": "8px"},
-        "colors": {"palette_size": 15, "uses_ramps": True},
+        "colors": {"palette_size": 15, "uses_ramps": True, "ramp_steps": 10},
+        "radius": {"tiers": 3, "values": [0, 3, 8], "strategy": "tight", "grid": "custom"},
+        "shadows": {"levels": 4, "blur_range": [1, 4, 12, 24], "system": "elevation (raised/overlay/floating)"},
     },
     "ibm_carbon": {
         "typography": {"scale_ratio": 1.25, "base_size": 14, "font_family": "IBM Plex Sans", "line_height_body": 1.5},
         "spacing": {"base": 8, "scale": [0, 2, 4, 8, 12, 16, 24, 32, 40, 48], "grid": "8px"},
-        "colors": {"palette_size": 12, "uses_ramps": True},
+        "colors": {"palette_size": 12, "uses_ramps": True, "ramp_steps": 10},
+        "radius": {"tiers": 3, "values": [0, 2, 4], "strategy": "tight", "grid": "base-2"},
+        "shadows": {"levels": 4, "blur_range": [2, 6, 12, 24], "system": "layer tokens (sm/md/lg/xl)"},
     },
     "tailwind_css": {
         "typography": {"scale_ratio": 1.25, "base_size": 16, "font_family": "system-ui", "line_height_body": 1.5},
         "spacing": {"base": 4, "scale": [0, 1, 2, 4, 6, 8, 10, 12, 14, 16, 20, 24, 28, 32], "grid": "4px"},
-        "colors": {"palette_size": 22, "uses_ramps": True},
+        "colors": {"palette_size": 22, "uses_ramps": True, "ramp_steps": 11},
+        "radius": {"tiers": 7, "values": [0, 2, 4, 6, 8, 12, 9999], "strategy": "expressive", "grid": "base-2"},
+        "shadows": {"levels": 6, "blur_range": [1, 3, 6, 15, 25, 50], "system": "utility (sm/DEFAULT/md/lg/xl/2xl)"},
     },
     "ant_design": {
         "typography": {"scale_ratio": 1.14, "base_size": 14, "font_family": "system-ui", "line_height_body": 1.57},
         "spacing": {"base": 8, "scale": [0, 4, 8, 12, 16, 20, 24, 32, 40, 48], "grid": "8px"},
-        "colors": {"palette_size": 13, "uses_ramps": True},
+        "colors": {"palette_size": 13, "uses_ramps": True, "ramp_steps": 10},
+        "radius": {"tiers": 4, "values": [0, 2, 4, 8], "strategy": "moderate", "grid": "base-2"},
+        "shadows": {"levels": 3, "blur_range": [6, 16, 48], "system": "3-tier (low/medium/high)"},
     },
     "chakra_ui": {
         "typography": {"scale_ratio": 1.25, "base_size": 16, "font_family": "system-ui", "line_height_body": 1.5},
         "spacing": {"base": 4, "scale": [0, 4, 8, 12, 16, 20, 24, 32, 40, 48, 56, 64], "grid": "4px"},
-        "colors": {"palette_size": 15, "uses_ramps": True},
+        "colors": {"palette_size": 15, "uses_ramps": True, "ramp_steps": 10},
+        "radius": {"tiers": 6, "values": [0, 2, 4, 6, 8, 9999], "strategy": "expressive", "grid": "base-2"},
+        "shadows": {"levels": 6, "blur_range": [1, 3, 6, 10, 15, 25], "system": "utility (xs/sm/md/lg/xl/2xl)"},
     },
 }
 
@@ -461,6 +501,8 @@ class BenchmarkResearcher:
             typography=extracted.get("typography", FALLBACK_BENCHMARKS.get(system_key, {}).get("typography", {})),
             spacing=extracted.get("spacing", FALLBACK_BENCHMARKS.get(system_key, {}).get("spacing", {})),
             colors=extracted.get("colors", FALLBACK_BENCHMARKS.get(system_key, {}).get("colors", {})),
+            radius=extracted.get("radius", FALLBACK_BENCHMARKS.get(system_key, {}).get("radius", {})),
+            shadows=extracted.get("shadows", FALLBACK_BENCHMARKS.get(system_key, {}).get("shadows", {})),
             fetched_at=datetime.now().isoformat(),
             confidence=confidence,
             source_urls=list(source["urls"].values()),
@@ -601,6 +643,8 @@ Return ONLY valid JSON, no explanation."""
                         typography=fallback.get("typography", {}),
                         spacing=fallback.get("spacing", {}),
                         colors=fallback.get("colors", {}),
+                        radius=fallback.get("radius", {}),
+                        shadows=fallback.get("shadows", {}),
                         fetched_at=datetime.now().isoformat(),
                         confidence="fallback",
                         best_for=source["best_for"],
@@ -618,53 +662,113 @@ Return ONLY valid JSON, no explanation."""
         your_spacing_grid: int,
         benchmarks: list[BenchmarkData],
         log_callback: Callable = None,
+        your_color_count: int = 0,
+        your_radius_tiers: int = 0,
+        your_shadow_levels: int = 0,
     ) -> list[BenchmarkComparison]:
         """
-        Compare user's tokens to researched benchmarks.
-        
+        Compare user's tokens to researched benchmarks — ALL 6 categories.
+
         Args:
             your_ratio: Detected type scale ratio
             your_base_size: Detected base font size
             your_spacing_grid: Detected spacing grid base
             benchmarks: List of researched BenchmarkData
             log_callback: Function to log progress
-            
+            your_color_count: Number of unique colors in palette
+            your_radius_tiers: Number of radius tier values
+            your_shadow_levels: Number of shadow elevation levels
+
         Returns:
             List of BenchmarkComparison sorted by similarity
         """
         def log(msg: str):
             if log_callback:
                 log_callback(msg)
-        
+
         log("")
-        log("   📊 BENCHMARK COMPARISON")
+        log("   📊 BENCHMARK COMPARISON (6 categories)")
         log("   " + "─" * 40)
-        log(f"   Your values: ratio={your_ratio:.2f}, base={your_base_size}px, grid={your_spacing_grid}px")
+        log(f"   Your values: ratio={your_ratio:.2f}, base={your_base_size}px, grid={your_spacing_grid}px, "
+            f"colors={your_color_count}, radius={your_radius_tiers} tiers, shadows={your_shadow_levels} levels")
         log("")
-        
+
         comparisons = []
-        
+
         for b in benchmarks:
             b_ratio = b.typography.get("scale_ratio", 1.25)
             b_base = b.typography.get("base_size", 16)
             b_grid = b.spacing.get("base", 8)
-            
-            # Calculate differences
+            b_colors = b.colors.get("palette_size", 15)
+            b_radius_tiers = b.radius.get("tiers", 4) if b.radius else 4
+            b_shadow_levels = b.shadows.get("levels", 5) if b.shadows else 5
+
+            # 1. Typography match
             ratio_diff = abs(your_ratio - b_ratio)
             base_diff = abs(your_base_size - b_base)
+            type_match = max(0, 100 - (ratio_diff * 100) - (base_diff * 3))
+
+            # 2. Spacing match
             grid_diff = abs(your_spacing_grid - b_grid)
-            
-            # Calculate match percentages
-            type_match = max(0, 100 - (ratio_diff * 100))  # 0.1 diff = 90% match
-            spacing_match = max(0, 100 - (grid_diff * 10))  # 4px diff = 60% match
-            
+            spacing_match = max(0, 100 - (grid_diff * 10))
+
+            # 3. Color match (palette size proximity)
+            color_diff = abs(your_color_count - b_colors) if your_color_count > 0 else 5
+            color_match = max(0, 100 - (color_diff * 5))
+            color_gap = ""
+            if your_color_count > 0:
+                if color_diff <= 2:
+                    color_gap = "aligned"
+                elif your_color_count > b_colors:
+                    color_gap = f"reduce by {your_color_count - b_colors}"
+                else:
+                    color_gap = f"expand by {b_colors - your_color_count}"
+            else:
+                color_gap = "no data"
+
+            # 4. Radius match (tier count proximity + strategy)
+            radius_diff = abs(your_radius_tiers - b_radius_tiers) if your_radius_tiers > 0 else 2
+            radius_match = max(0, 100 - (radius_diff * 15))
+            radius_gap = ""
+            if your_radius_tiers > 0:
+                if radius_diff <= 1:
+                    radius_gap = "aligned"
+                elif your_radius_tiers > b_radius_tiers:
+                    radius_gap = f"reduce by {your_radius_tiers - b_radius_tiers} tiers"
+                else:
+                    radius_gap = f"add {b_radius_tiers - your_radius_tiers} tiers"
+            else:
+                radius_gap = "no data"
+
+            # 5. Shadow match (level count proximity)
+            shadow_diff = abs(your_shadow_levels - b_shadow_levels) if your_shadow_levels > 0 else 3
+            shadow_match = max(0, 100 - (shadow_diff * 15))
+            shadow_gap = ""
+            if your_shadow_levels > 0:
+                if shadow_diff <= 1:
+                    shadow_gap = "aligned"
+                elif your_shadow_levels > b_shadow_levels:
+                    shadow_gap = f"reduce by {your_shadow_levels - b_shadow_levels} levels"
+                else:
+                    shadow_gap = f"add {b_shadow_levels - your_shadow_levels} levels"
+            else:
+                shadow_gap = "no data"
+
             # Weighted similarity score (lower = more similar)
-            similarity = (ratio_diff * 10) + (base_diff * 0.5) + (grid_diff * 0.3)
-            
-            # Overall match percentage
-            overall_match = (type_match * 0.5) + (spacing_match * 0.3) + (100 - base_diff * 5) * 0.2
+            similarity = (ratio_diff * 10) + (base_diff * 0.5) + (grid_diff * 0.3) + \
+                         (color_diff * 0.2) + (radius_diff * 0.3) + (shadow_diff * 0.3)
+
+            # Overall match percentage (weighted average of all 6)
+            overall_match = (
+                type_match * 0.25 +
+                spacing_match * 0.20 +
+                color_match * 0.20 +
+                radius_match * 0.15 +
+                shadow_match * 0.10 +
+                max(0, 100 - base_diff * 5) * 0.10
+            )
             overall_match = max(0, min(100, overall_match))
-            
+
             comparisons.append(BenchmarkComparison(
                 benchmark=b,
                 similarity_score=similarity,
@@ -673,19 +777,26 @@ Return ONLY valid JSON, no explanation."""
                 spacing_grid_diff=grid_diff,
                 type_match_pct=type_match,
                 spacing_match_pct=spacing_match,
+                color_match_pct=color_match,
+                radius_match_pct=radius_match,
+                shadow_match_pct=shadow_match,
                 overall_match_pct=overall_match,
+                color_gap=color_gap,
+                radius_gap=radius_gap,
+                shadow_gap=shadow_gap,
             ))
-        
+
         # Sort by similarity (lower = better)
         comparisons.sort(key=lambda x: x.similarity_score)
-        
-        # Log results
+
+        # Log results with per-category breakdown
         medals = ["🥇", "🥈", "🥉"]
         for i, c in enumerate(comparisons[:5]):
             medal = medals[i] if i < 3 else "  "
             b = c.benchmark
-            log(f"   {medal} {b.icon} {b.short_name}: {c.overall_match_pct:.0f}% match (score: {c.similarity_score:.2f})")
-            log(f"      └─ ratio={b.typography.get('scale_ratio')}, base={b.typography.get('base_size')}px, grid={b.spacing.get('base')}px")
+            log(f"   {medal} {b.icon} {b.short_name}: {c.overall_match_pct:.0f}% overall match")
+            log(f"      ├─ Type: {c.type_match_pct:.0f}% | Spacing: {c.spacing_match_pct:.0f}% | Colors: {c.color_match_pct:.0f}%")
+            log(f"      └─ Radius: {c.radius_match_pct:.0f}% | Shadows: {c.shadow_match_pct:.0f}%")
         
         return comparisons
 

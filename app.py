@@ -970,6 +970,8 @@ async def run_stage2_analysis_v2(
                             typography=data.get("typography", {}),
                             spacing=data.get("spacing", {}),
                             colors=data.get("colors", {}),
+                            radius=data.get("radius", {}),
+                            shadows=data.get("shadows", {}),
                             fetched_at=datetime.now().isoformat(),
                             confidence="fallback",
                             best_for=[],
@@ -977,12 +979,20 @@ async def run_stage2_analysis_v2(
             
             # Compare to benchmarks
             if benchmarks and rule_results:
+                # Count user's radius tiers and shadow levels for comparison
+                _user_radius_tiers = len(desktop_dict.get("radius", {}))
+                _user_shadow_levels = len(desktop_dict.get("shadows", {}))
+                _user_color_count = len(desktop_dict.get("colors", {}))
+
                 benchmark_comparisons = researcher.compare_to_benchmarks(
                     your_ratio=rule_results.typography.detected_ratio,
                     your_base_size=int(rule_results.typography.base_size) if rule_results.typography.sizes_px else 16,
                     your_spacing_grid=rule_results.spacing.detected_base,
                     benchmarks=benchmarks,
                     log_callback=state.log,
+                    your_color_count=_user_color_count,
+                    your_radius_tiers=_user_radius_tiers,
+                    your_shadow_levels=_user_shadow_levels,
                 )
                 state.benchmark_comparisons = benchmark_comparisons
                 state.log("")
@@ -1443,10 +1453,20 @@ async def run_stage2_analysis_v2(
                 "*Formatting error - color ramps unavailable*",  # color_ramps_md
                 "*Formatting error - radius tokens unavailable*",  # radius_md
                 "*Formatting error - shadow tokens unavailable*",  # shadows_md
+                "⚠️ Color preview unavailable due to formatting errors.",  # auto_color_preview
             )
         
+        # Auto-generate color classification preview
+        auto_color_preview = ""
+        try:
+            auto_color_preview = preview_color_classification("semantic")
+            state.log("   ✅ Color classification preview auto-generated (semantic convention)")
+        except Exception as cp_err:
+            state.log(f"   ⚠️ Auto color preview failed: {str(cp_err)}")
+            auto_color_preview = "⚠️ Color preview unavailable — click 'Preview Color Names' button to generate."
+
         progress(0.95, desc="✅ Complete!")
-        
+
         # Final log summary
         state.log("")
         state.log("═" * 60)
@@ -1494,6 +1514,7 @@ async def run_stage2_analysis_v2(
             color_ramps_md,
             radius_md,
             shadows_md,
+            auto_color_preview,
         )
 
     except Exception as e:
@@ -1604,7 +1625,7 @@ def create_fallback_synthesis(rule_results, benchmark_comparisons, brand_result,
 
 
 def create_stage2_error_response(error_msg: str):
-    """Create error response tuple for Stage 2 (must match 16 outputs)."""
+    """Create error response tuple for Stage 2 (must match 17 outputs)."""
     return (
         error_msg,
         state.get_logs(),
@@ -1622,6 +1643,7 @@ def create_stage2_error_response(error_msg: str):
         "*Run analysis to see color ramps*",  # color_ramps_md
         "*Run analysis to see radius tokens*",  # radius_md
         "*Run analysis to see shadow tokens*",  # shadows_md
+        "",  # auto_color_preview
     )
 
 
@@ -1664,46 +1686,87 @@ def format_stage2_status_v2(rule_results, final_synthesis, best_practices) -> st
 
 
 def format_benchmark_comparison_v2(benchmark_comparisons, benchmark_advice) -> str:
-    """Format benchmark comparison results."""
-    
+    """Format benchmark comparison results — ALL 6 categories."""
+
     if not benchmark_comparisons:
         return "*No benchmark comparison available*"
-    
+
     lines = []
-    lines.append("## 📊 Benchmark Comparison")
+    lines.append("## 📊 Benchmark Comparison (6 Categories)")
     lines.append("")
-    
+
     # Recommended benchmark
     if benchmark_advice and benchmark_advice.recommended_benchmark_name:
         lines.append(f"### 🏆 Recommended: {benchmark_advice.recommended_benchmark_name}")
         if benchmark_advice.reasoning:
-            lines.append(f"*{benchmark_advice.reasoning[:200]}*")
+            lines.append(f"*{benchmark_advice.reasoning}*")
         lines.append("")
-    
-    # Comparison table
+
+    # Full comparison table with all 6 categories
     lines.append("### 📈 Similarity Ranking")
     lines.append("")
-    lines.append("| Rank | Design System | Match | Type Ratio | Base | Grid |")
-    lines.append("|------|---------------|-------|------------|------|------|")
-    
+    lines.append("| Rank | Design System | Overall | Type | Spacing | Colors | Radius | Shadows |")
+    lines.append("|------|---------------|---------|------|---------|--------|--------|---------|")
+
     medals = ["🥇", "🥈", "🥉"]
     for i, c in enumerate(benchmark_comparisons[:5]):
         medal = medals[i] if i < 3 else str(i+1)
         b = c.benchmark
+
+        def pct_icon(pct):
+            if pct >= 80: return f"✅ {pct:.0f}%"
+            elif pct >= 50: return f"🟡 {pct:.0f}%"
+            else: return f"🔴 {pct:.0f}%"
+
         lines.append(
-            f"| {medal} | {b.icon} {b.short_name} | {c.overall_match_pct:.0f}% | "
-            f"{b.typography.get('scale_ratio', '?')} | {b.typography.get('base_size', '?')}px | "
-            f"{b.spacing.get('base', '?')}px |"
+            f"| {medal} | {b.icon} {b.short_name} | **{c.overall_match_pct:.0f}%** | "
+            f"{pct_icon(c.type_match_pct)} | {pct_icon(c.spacing_match_pct)} | "
+            f"{pct_icon(c.color_match_pct)} | {pct_icon(c.radius_match_pct)} | "
+            f"{pct_icon(c.shadow_match_pct)} |"
         )
-    
+
     lines.append("")
-    
+
+    # Detailed per-category comparison for top benchmark
+    if benchmark_comparisons:
+        top = benchmark_comparisons[0]
+        b = top.benchmark
+        lines.append(f"### 🔍 Detailed: Your Site vs {b.icon} {b.short_name}")
+        lines.append("")
+        lines.append("| Category | Your Value | Benchmark | Gap | Match |")
+        lines.append("|----------|-----------|-----------|-----|-------|")
+        lines.append(f"| **Typography** | ratio {top.type_ratio_diff + b.typography.get('scale_ratio', 1.25):.2f} | ratio {b.typography.get('scale_ratio', '?')} | diff {top.type_ratio_diff:.2f} | {top.type_match_pct:.0f}% |")
+        lines.append(f"| **Base Size** | {top.base_size_diff + b.typography.get('base_size', 16)}px | {b.typography.get('base_size', '?')}px | diff {top.base_size_diff}px | — |")
+        lines.append(f"| **Spacing** | {top.spacing_grid_diff + b.spacing.get('base', 8)}px grid | {b.spacing.get('base', '?')}px grid | diff {top.spacing_grid_diff}px | {top.spacing_match_pct:.0f}% |")
+        lines.append(f"| **Colors** | — | {b.colors.get('palette_size', '?')} colors | {top.color_gap or 'N/A'} | {top.color_match_pct:.0f}% |")
+        b_radius = b.radius if hasattr(b, 'radius') and b.radius else {}
+        b_shadows = b.shadows if hasattr(b, 'shadows') and b.shadows else {}
+        lines.append(f"| **Radius** | — | {b_radius.get('tiers', '?')} tiers ({b_radius.get('strategy', '?')}) | {top.radius_gap or 'N/A'} | {top.radius_match_pct:.0f}% |")
+        lines.append(f"| **Shadows** | — | {b_shadows.get('levels', '?')} levels | {top.shadow_gap or 'N/A'} | {top.shadow_match_pct:.0f}% |")
+
+    lines.append("")
+
     # Alignment changes needed
     if benchmark_advice and benchmark_advice.alignment_changes:
         lines.append("### 🔧 Changes to Align")
-        for change in benchmark_advice.alignment_changes[:3]:
-            lines.append(f"- **{change.get('change', '?')}**: {change.get('from', '?')} → {change.get('to', '?')} (effort: {change.get('effort', '?')})")
-    
+        for change in benchmark_advice.alignment_changes[:5]:
+            token_type = change.get('token_type', '')
+            icon = {"typography": "📐", "spacing": "📏", "colors": "🎨", "radius": "🔘", "shadows": "🌗"}.get(token_type, "🔧")
+            lines.append(f"- {icon} **{change.get('change', '?')}**: {change.get('from', '?')} → {change.get('to', '?')} (effort: {change.get('effort', '?')})")
+    lines.append("")
+
+    # Pros and cons
+    if benchmark_advice:
+        if benchmark_advice.pros_of_alignment:
+            lines.append("**✅ Pros of aligning:**")
+            for pro in benchmark_advice.pros_of_alignment[:3]:
+                lines.append(f"- {pro}")
+        if benchmark_advice.cons_of_alignment:
+            lines.append("")
+            lines.append("**⚠️ Considerations:**")
+            for con in benchmark_advice.cons_of_alignment[:3]:
+                lines.append(f"- {con}")
+
     return "\n".join(lines)
 
 
@@ -4410,6 +4473,29 @@ def create_ui():
                         "(brand, text, background, border, feedback).*",
                         elem_classes=["section-desc"])
 
+            # ── Color Naming Convention Preview (visible BEFORE export) ──
+            with gr.Accordion("🏷️ Color Naming Convention — Preview Before Export", open=True):
+                gr.Markdown("**Choose how colors are named in your export.** Preview the classification to verify names before exporting. "
+                            "100% rule-based — no LLM involved. Change convention anytime and re-preview.",
+                            elem_classes=["section-desc"])
+                with gr.Row():
+                    naming_convention_stage2 = gr.Dropdown(
+                        choices=["semantic", "tailwind", "material"],
+                        value="semantic",
+                        label="🎨 Naming Convention",
+                        info="semantic = color.brand.primary | tailwind = brand-primary | material = color.brand.primary",
+                        scale=2,
+                    )
+                    preview_colors_btn_stage2 = gr.Button("👁️ Preview Color Names", variant="secondary", scale=1)
+                color_preview_output_stage2 = gr.Textbox(
+                    label="Color Classification Preview (Rule-Based — No LLM)",
+                    lines=18,
+                    max_lines=40,
+                    interactive=False,
+                    placeholder="Click 'Preview Color Names' above to see how colors will be named in the export. "
+                                "This runs AFTER extraction (Stage 1). No LLM cost.",
+                )
+
             # LLM Recommendations Section (NEW)
             with gr.Accordion("🤖 LLM Color Recommendations", open=True):
                 gr.Markdown("*Four AI agents analyzed your colors: **Brand Identifier** (detects primary/secondary brand colors), "
@@ -4560,6 +4646,26 @@ def create_ui():
                         elem_classes=["section-desc"])
             export_output = gr.Code(label="Tokens JSON", language="json", lines=25)
 
+            # Stage 2 color naming preview (primary — visible before export)
+            preview_colors_btn_stage2.click(
+                preview_color_classification,
+                inputs=[naming_convention_stage2],
+                outputs=[color_preview_output_stage2],
+            )
+            # Sync naming convention: Stage 2 dropdown → Stage 3 dropdown
+            naming_convention_stage2.change(
+                lambda v: v,
+                inputs=[naming_convention_stage2],
+                outputs=[naming_convention],
+            )
+            # Stage 3 also syncs back
+            naming_convention.change(
+                lambda v: v,
+                inputs=[naming_convention],
+                outputs=[naming_convention_stage2],
+            )
+
+            # Stage 3 preview (kept for convenience)
             preview_colors_btn.click(
                 preview_color_classification,
                 inputs=[naming_convention],
@@ -4607,10 +4713,10 @@ def create_ui():
             inputs=[desktop_data],
             outputs=[colors_table, typography_table, spacing_table, radius_table],
         ).then(
-            fn=lambda: gr.update(open=True),
-            outputs=[stage1_accordion],
+            fn=lambda: (gr.update(open=True), gr.update(open=True)),
+            outputs=[stage1_accordion, stage2_accordion],
         )
-        
+
         # Viewport toggle
         viewport_toggle.change(
             fn=switch_viewport,
@@ -4639,9 +4745,13 @@ def create_ui():
                 color_ramps_display,
                 radius_display,
                 shadows_display,
+                color_preview_output_stage2,
             ],
+        ).then(
+            fn=lambda: gr.update(open=True),
+            outputs=[stage3_accordion],
         )
-        
+
         # Stage 2: Apply upgrades
         apply_upgrades_btn.click(
             fn=apply_selected_upgrades,
