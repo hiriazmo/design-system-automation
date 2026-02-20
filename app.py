@@ -4542,11 +4542,11 @@ def create_ui():
                 )
                 preview_colors_btn = gr.Button("👁️ Preview Color Names", variant="secondary", scale=1)
 
-            color_preview_output = gr.Code(
+            color_preview_output = gr.Textbox(
                 label="Color Classification Preview (Rule-Based — No LLM)",
-                language="text",
                 lines=15,
-                visible=True,
+                max_lines=30,
+                interactive=False,
             )
 
             with gr.Row():
