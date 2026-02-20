@@ -204,9 +204,21 @@ def classify_colors(
     # STEP 1: Build flat color list with metadata
     # =========================================================================
     raw_colors = []
+    skipped_invalid = 0
     for name, c in colors_dict.items():
         hex_val = c.value if hasattr(c, 'value') else c.get('value', '')
         hex_val = normalize_hex(hex_val)
+
+        # Validate hex: must be exactly #RRGGBB (7 chars) or #RGB (4 chars)
+        if not hex_val or len(hex_val) not in (4, 7) or not hex_val.startswith('#'):
+            skipped_invalid += 1
+            continue
+        # Verify all chars after # are hex digits
+        hex_digits = hex_val[1:]
+        if not all(ch in '0123456789abcdefABCDEF' for ch in hex_digits):
+            skipped_invalid += 1
+            continue
+
         freq = c.frequency if hasattr(c, 'frequency') else c.get('frequency', 0)
         css_props = c.css_properties if hasattr(c, 'css_properties') else c.get('css_properties', [])
         elements = c.elements if hasattr(c, 'elements') else c.get('elements', [])
@@ -226,7 +238,7 @@ def classify_colors(
             "hue_family": categorize_color(hex_val),
         })
 
-    log(f"Input: {len(raw_colors)} unique colors")
+    log(f"Input: {len(raw_colors)} unique colors" + (f" ({skipped_invalid} invalid hex values skipped)" if skipped_invalid else ""))
 
     # =========================================================================
     # STEP 2: Classify each color by CSS evidence
@@ -364,7 +376,10 @@ def _classify_single_color(c: dict) -> str:
 def _aggressive_dedup(colors: list[dict], log) -> list[dict]:
     """
     Aggressively merge similar colors WITHIN the same category.
-    Threshold: RGB distance < 30 for same-category colors.
+
+    Thresholds:
+    - Semantic categories (brand, text, bg, border, feedback): RGB distance < 30
+    - Palette: RGB distance < 50 within same hue family (more aggressive)
     """
     # Group by category
     by_category = {}
@@ -382,49 +397,68 @@ def _aggressive_dedup(colors: list[dict], log) -> list[dict]:
             result.extend(cat_colors)
             continue
 
-        # Sort by frequency (most used first — these survive merges)
-        cat_colors.sort(key=lambda x: -x["frequency"])
+        if cat == "palette":
+            # For palette: dedup within each hue family with higher threshold
+            by_hue = {}
+            for c in cat_colors:
+                hf = c["hue_family"]
+                if hf not in by_hue:
+                    by_hue[hf] = []
+                by_hue[hf].append(c)
 
-        merged = []
-        used = set()
-
-        for i, c1 in enumerate(cat_colors):
-            if i in used:
-                continue
-
-            group = [c1]
-            for j, c2 in enumerate(cat_colors[i+1:], i+1):
-                if j in used:
-                    continue
-                dist = _rgb_distance(c1["hex"], c2["hex"])
-                if dist < 30:
-                    group.append(c2)
-                    used.add(j)
-
-            # Merge into the highest-frequency color
-            primary = group[0]
-            merged_hexes = []
-            for other in group[1:]:
-                primary["frequency"] += other["frequency"]
-                primary["css_properties"] = list(set(primary["css_properties"] + other["css_properties"]))
-                primary["elements"] = list(set(primary["elements"] + other["elements"]))
-                primary["contexts"] = list(set(primary["contexts"] + other["contexts"]))
-                merged_hexes.append(other["hex"])
-
-            primary["merged_from"] = merged_hexes
-            merged.append(primary)
-            used.add(i)
-
-            if merged_hexes:
-                total_merged += len(merged_hexes)
-                log(f"[DEDUP] {cat}: {primary['hex']} absorbed {merged_hexes} (dist<30)")
-
-        result.extend(merged)
+            for hue_fam, hue_colors in by_hue.items():
+                merged_hue, merged_count = _dedup_group(hue_colors, threshold=50, label=f"palette/{hue_fam}", log=log)
+                result.extend(merged_hue)
+                total_merged += merged_count
+        else:
+            merged_cat, merged_count = _dedup_group(cat_colors, threshold=30, label=cat, log=log)
+            result.extend(merged_cat)
+            total_merged += merged_count
 
     if total_merged > 0:
         log(f"[DEDUP] Total: {total_merged} near-duplicate colors merged")
 
     return result
+
+
+def _dedup_group(colors: list[dict], threshold: float, label: str, log) -> tuple[list[dict], int]:
+    """Dedup a group of colors with given RGB distance threshold."""
+    colors.sort(key=lambda x: -x["frequency"])
+    merged = []
+    used = set()
+    merged_count = 0
+
+    for i, c1 in enumerate(colors):
+        if i in used:
+            continue
+
+        group = [c1]
+        for j, c2 in enumerate(colors[i+1:], i+1):
+            if j in used:
+                continue
+            dist = _rgb_distance(c1["hex"], c2["hex"])
+            if dist < threshold:
+                group.append(c2)
+                used.add(j)
+
+        primary = group[0]
+        merged_hexes = []
+        for other in group[1:]:
+            primary["frequency"] += other["frequency"]
+            primary["css_properties"] = list(set(primary["css_properties"] + other["css_properties"]))
+            primary["elements"] = list(set(primary["elements"] + other["elements"]))
+            primary["contexts"] = list(set(primary["contexts"] + other["contexts"]))
+            merged_hexes.append(other["hex"])
+
+        primary["merged_from"] = merged_hexes
+        merged.append(primary)
+        used.add(i)
+
+        if merged_hexes:
+            merged_count += len(merged_hexes)
+            log(f"[DEDUP] {label}: {primary['hex']} absorbed {len(merged_hexes)} similar (dist<{threshold})")
+
+    return merged, merged_count
 
 
 # =============================================================================
@@ -438,14 +472,18 @@ CATEGORY_CAPS = {
     "bg": 3,          # primary, secondary, tertiary
     "border": 3,      # light, default, dark
     "feedback": 4,    # error, warning, success, info
-    "palette": 20,    # generous cap for remaining
+    "palette": 999,   # palette cap is enforced per-hue-family below
 }
+
+# Maximum palette colors PER hue family (e.g., max 4 blues, max 4 reds)
+PALETTE_PER_HUE_CAP = 4
 
 
 def _cap_per_category(colors: list[dict], log) -> list[dict]:
     """
-    Limit colors per category. Excess become palette colors.
-    Within each category, keep by frequency (most used survives).
+    Limit colors per category. Excess get dropped (not demoted).
+    For palette: enforce a per-hue-family cap (max 4 per hue).
+    Within each group, keep highest-frequency colors.
     """
     by_category = {}
     for c in colors:
@@ -457,21 +495,31 @@ def _cap_per_category(colors: list[dict], log) -> list[dict]:
     result = []
 
     for cat, cat_colors in by_category.items():
-        cap = CATEGORY_CAPS.get(cat, 10)
         cat_colors.sort(key=lambda x: -x["frequency"])
 
-        kept = cat_colors[:cap]
-        overflow = cat_colors[cap:]
+        if cat == "palette":
+            # Enforce per-hue-family cap
+            by_hue = {}
+            for c in cat_colors:
+                hf = c["hue_family"]
+                if hf not in by_hue:
+                    by_hue[hf] = []
+                by_hue[hf].append(c)
 
-        result.extend(kept)
-
-        # Overflow colors become palette
-        for c in overflow:
-            old_cat = c["category"]
-            c["category"] = "palette"
-            log(f"[CAP] {c['hex']} demoted: {old_cat} → palette (category full, freq={c['frequency']})")
-
-        result.extend(overflow)
+            for hue_fam, hue_colors in by_hue.items():
+                hue_colors.sort(key=lambda x: -x["frequency"])
+                kept = hue_colors[:PALETTE_PER_HUE_CAP]
+                dropped = hue_colors[PALETTE_PER_HUE_CAP:]
+                result.extend(kept)
+                if dropped:
+                    log(f"[CAP] {hue_fam}: kept top {len(kept)}, dropped {len(dropped)} low-freq palette colors")
+        else:
+            cap = CATEGORY_CAPS.get(cat, 3)
+            kept = cat_colors[:cap]
+            dropped = cat_colors[cap:]
+            result.extend(kept)
+            if dropped:
+                log(f"[CAP] {cat}: kept {len(kept)}, dropped {len(dropped)} overflow colors")
 
     return result
 
@@ -483,6 +531,10 @@ def _cap_per_category(colors: list[dict], log) -> list[dict]:
 def _assign_names(colors: list[dict], convention: str, log) -> list[ClassifiedColor]:
     """
     Assign final token names based on chosen convention.
+
+    For palette colors: distributes across unique shade slots per hue family
+    (no .2/.3 suffixes). If 4 blues exist, they get shades spread across the
+    full 50-900 range based on relative lightness ordering.
     """
     conv = CONVENTIONS.get(convention, CONVENTIONS["semantic"])
     prefix = conv["prefix"]
@@ -507,28 +559,16 @@ def _assign_names(colors: list[dict], convention: str, log) -> list[ClassifiedCo
         # Sort by frequency for consistent ordering
         cat_colors.sort(key=lambda x: -x["frequency"])
 
-        for idx, c in enumerate(cat_colors):
-            name_cat = cat  # Local var — don't override loop variable
+        if cat == "palette":
+            # PALETTE: Group by hue family, then distribute across shade slots
+            result.extend(_assign_palette_names(cat_colors, convention, prefix, sep, used_names, log))
+            continue
 
+        for idx, c in enumerate(cat_colors):
             if cat == "feedback":
                 role = _assign_feedback_role(c, idx, by_category.get("feedback", []))
-            elif cat == "palette":
-                # Palette: use hue family + numeric shade (ALWAYS)
-                name_cat = c["hue_family"]  # Override with hue family
-                parsed = parse_color(c["hex"])
-                if parsed:
-                    role = _lightness_to_shade(parsed.hsl[2])
-                else:
-                    role = "500"
-            elif convention == "semantic":
-                # Semantic: use role names (primary, secondary, muted, etc.)
-                role_names = ROLE_SHADE_NAMES.get(c["category"], ["primary", "secondary", "tertiary"])
-                if idx < len(role_names):
-                    role = role_names[idx]
-                else:
-                    role = f"{idx + 1}"
             else:
-                # Tailwind/Material: even role colors get descriptive names
+                # Semantic / Tailwind / Material: use role names
                 role_names = ROLE_SHADE_NAMES.get(c["category"], ["primary", "secondary", "tertiary"])
                 if idx < len(role_names):
                     role = role_names[idx]
@@ -537,21 +577,20 @@ def _assign_names(colors: list[dict], convention: str, log) -> list[ClassifiedCo
 
             # Build token name
             if convention == "tailwind":
-                token_name = f"{name_cat}{sep}{role}"
+                token_name = f"{cat}{sep}{role}"
             else:
-                token_name = f"{prefix}{name_cat}{sep}{role}"
+                token_name = f"{prefix}{cat}{sep}{role}"
 
-            # Handle name collisions
-            base_name = token_name
-            suffix = 2
-            while token_name in used_names:
-                token_name = f"{base_name}{sep}{suffix}"
-                suffix += 1
+            # Collision guard (should be rare for non-palette)
+            if token_name in used_names:
+                base_name = token_name
+                suffix = 2
+                while token_name in used_names:
+                    token_name = f"{base_name}{sep}{suffix}"
+                    suffix += 1
             used_names.add(token_name)
 
-            # Build evidence
             evidence = _build_evidence(c)
-
             log(f"[NAME] {c['hex']} → {token_name} ({c['category']}, freq={c['frequency']})")
 
             result.append(ClassifiedColor(
@@ -567,6 +606,89 @@ def _assign_names(colors: list[dict], convention: str, log) -> list[ClassifiedCo
                 contexts=c["contexts"],
                 merged_from=c.get("merged_from", []),
                 hue_family=c["hue_family"],
+                luminance=c["luminance"],
+                saturation=c["saturation"],
+            ))
+
+    return result
+
+
+# Shade slots ordered by lightness (lightest first)
+_SHADE_SLOTS = ["50", "100", "200", "300", "400", "500", "600", "700", "800", "900"]
+
+
+def _assign_palette_names(
+    palette_colors: list[dict],
+    convention: str,
+    prefix: str,
+    sep: str,
+    used_names: set,
+    log,
+) -> list[ClassifiedColor]:
+    """
+    Assign palette names by hue family with unique shade per color.
+
+    For N colors in a hue family, picks N evenly-spaced shade slots
+    sorted by lightness (lightest color → lightest shade).
+    No .2/.3 suffixes ever.
+    """
+    # Group by hue family
+    by_hue = {}
+    for c in palette_colors:
+        hf = c["hue_family"]
+        if hf not in by_hue:
+            by_hue[hf] = []
+        by_hue[hf].append(c)
+
+    result = []
+
+    for hue_fam, hue_colors in sorted(by_hue.items()):
+        n = len(hue_colors)
+
+        # Sort by luminance: lightest first → gets lightest shade slot
+        hue_colors.sort(key=lambda x: -x["luminance"])
+
+        # Pick N evenly-spaced shade slots from the 10 available
+        if n == 1:
+            slots = ["500"]
+        elif n == 2:
+            slots = ["300", "700"]
+        elif n == 3:
+            slots = ["200", "500", "800"]
+        elif n == 4:
+            slots = ["100", "400", "600", "900"]
+        else:
+            # For n > 4 (shouldn't happen with cap=4, but safety)
+            step = max(1, len(_SHADE_SLOTS) // n)
+            slots = _SHADE_SLOTS[::step][:n]
+
+        for idx, c in enumerate(hue_colors):
+            role = slots[idx] if idx < len(slots) else str((idx + 1) * 100)
+
+            if convention == "tailwind":
+                token_name = f"{hue_fam}{sep}{role}"
+            else:
+                token_name = f"{prefix}{hue_fam}{sep}{role}"
+
+            # Name should be unique (cap guarantees max 4 per hue)
+            used_names.add(token_name)
+
+            evidence = _build_evidence(c)
+            log(f"[NAME] {c['hex']} → {token_name} (palette/{hue_fam}, freq={c['frequency']})")
+
+            result.append(ClassifiedColor(
+                hex=c["hex"],
+                frequency=c["frequency"],
+                category="palette",
+                role=role,
+                token_name=token_name,
+                evidence=evidence,
+                confidence="high" if c["frequency"] > 10 else "medium" if c["frequency"] > 3 else "low",
+                css_properties=c["css_properties"],
+                elements=c["elements"],
+                contexts=c["contexts"],
+                merged_from=c.get("merged_from", []),
+                hue_family=hue_fam,
                 luminance=c["luminance"],
                 saturation=c["saturation"],
             ))

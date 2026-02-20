@@ -354,9 +354,9 @@ def categorize_color(color: str) -> str:
         return "green"
     elif h < 190:
         return "cyan"
-    elif h < 260:
+    elif h <= 240:
         return "blue"
-    elif h < 290:
+    elif h < 295:
         return "purple"
     else:
         return "pink"
