@@ -2753,10 +2753,23 @@ def apply_selected_upgrades(type_choice: str, spacing_choice: str, apply_ramps: 
     # Process accepted color recommendations
     accepted_color_changes = []
     rejected_count = 0
-    if color_recs_table:
+    # Normalize color_recs_table: Gradio 6 may pass a DataFrame or list-of-lists
+    _color_rows = []
+    if color_recs_table is not None:
+        try:
+            import pandas as pd
+            if isinstance(color_recs_table, pd.DataFrame) and not color_recs_table.empty:
+                _color_rows = color_recs_table.values.tolist()
+            elif isinstance(color_recs_table, (list, tuple)) and len(color_recs_table) > 0:
+                _color_rows = list(color_recs_table)
+        except Exception:
+            if isinstance(color_recs_table, (list, tuple)):
+                _color_rows = list(color_recs_table)
+
+    if _color_rows:
         state.log("")
         state.log("   🎨 LLM Color Recommendations:")
-        for row in color_recs_table:
+        for row in _color_rows:
             if len(row) >= 5:
                 accept = row[0]  # Boolean checkbox
                 role = row[1]    # Role name
