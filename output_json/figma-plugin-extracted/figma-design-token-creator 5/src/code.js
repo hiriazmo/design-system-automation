@@ -781,10 +781,14 @@ figma.ui.onmessage = async function(msg) {
       var tokens = normalizeTokens(rawTokens);
       console.log('Normalized tokens - colors:', tokens.colors.length, 'typography:', tokens.typography.length);
 
-      // Create a new page for the visual spec
-      var specPage = figma.createPage();
+      // Use current page instead of creating new page (Figma Starter plan has 3-page limit)
+      var specPage = figma.currentPage;
       specPage.name = '🎨 Design System Spec';
-      figma.currentPage = specPage;
+
+      // Clear existing children on the page so spec starts fresh
+      while (specPage.children.length > 0) {
+        specPage.children[0].remove();
+      }
 
       var yOffset = 0;
       var xOffset = 0;
