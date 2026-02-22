@@ -1090,20 +1090,25 @@ figma.ui.onmessage = async function(msg) {
           var tierName = tierParts.filter(function(p) { return p !== 'desktop' && p !== 'mobile'; }).join('.');
           addText(frame, tierName, boldFont, 13, COL_NAME, fy + 4, DARK);
 
-          // Sample text in actual font — use fixed width so it wraps, then measure height
+          // Sample text in actual font
           var useBold = (tierName.indexOf('display') > -1 || tierName.indexOf('heading') > -1);
+          var sampleText = getSampleText(tt.name);
           var sample = figma.createText();
           sample.fontName = useBold ? sampleFontBold : sampleFont;
           sample.fontSize = displaySize;
-          // Set fixed width BEFORE setting characters so text wraps properly
           sample.textAutoResize = 'HEIGHT';
           sample.resize(540, displaySize * 2);
-          sample.characters = getSampleText(tt.name);
+          sample.characters = sampleText;
           sample.x = COL_SAMPLE; sample.y = fy;
           frame.appendChild(sample);
 
-          // Actual sample height after text rendering
-          var sampleH = sample.height;
+          // Manual height calculation — sample.height is unreliable in plugin API
+          var avgCharWidth = displaySize * 0.52;
+          var sampleColW = 540;
+          var charsPerLine = Math.max(1, Math.floor(sampleColW / avgCharWidth));
+          var numLines = Math.ceil(sampleText.length / charsPerLine);
+          var lineH = displaySize * 1.4;
+          var sampleH = Math.max(numLines * lineH, displaySize * 1.5);
 
           // Specs column — stacked chips
           var specY = fy;
@@ -1284,13 +1289,14 @@ figma.ui.onmessage = async function(msg) {
       }
 
       // ══════════════════════════════════════════════════════════
-      // POSITION ALL FRAMES — stack vertically with proper spacing
+      // POSITION ALL FRAMES — stack HORIZONTALLY with proper spacing
       // This runs AFTER all frames are created and resized to actual content.
       // ══════════════════════════════════════════════════════════
-      var stackY = 0;
+      var stackX = 0;
       for (var fi = 0; fi < allFrames.length; fi++) {
-        allFrames[fi].y = stackY;
-        stackY += allFrames[fi].height + SECTION_GAP;
+        allFrames[fi].x = stackX;
+        allFrames[fi].y = 0;
+        stackX += allFrames[fi].width + SECTION_GAP;
       }
 
       figma.ui.postMessage({ type: 'spec-complete', message: 'Visual spec created with ' + allFrames.length + ' section frames!' });
