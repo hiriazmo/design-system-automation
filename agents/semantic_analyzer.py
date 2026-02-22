@@ -2,6 +2,15 @@
 Agent 1C: Semantic Color Analyzer
 Design System Extractor v2
 
+⚠️  DEPRECATED in v3.2 — Superseded by:
+  - core/color_classifier.py (rule-based, primary naming authority)
+  - agents/normalizer.py._infer_role_hint() (role hints for AURORA)
+  - AURORA agent in llm_agents.py (semantic role enhancement only)
+
+This module is kept for backward compatibility but should not be called
+in the main pipeline. Its heuristics have been absorbed into
+normalizer._infer_role_hint() and color_classifier.classify_colors().
+
 Persona: Design System Semanticist
 
 Responsibilities:

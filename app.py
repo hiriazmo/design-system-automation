@@ -2947,20 +2947,29 @@ def _flat_key_to_nested(flat_key: str, value: dict, root: dict):
     current[parts[-1]] = value
 
 
-def _to_dtcg_token(value, token_type: str, description: str = None, source: str = None) -> dict:
-    """Wrap value in W3C DTCG format with $value, $type, $description.
+def _to_dtcg_token(value, token_type: str, description: str = None,
+                    source: str = None, extensions: dict = None) -> dict:
+    """Wrap value in W3C DTCG v1 (2025.10) format.
+
+    Spec: https://www.designtokens.org/tr/drafts/format/
 
     Args:
         value: The token value
-        token_type: W3C DTCG type (color, typography, dimension, shadow)
+        token_type: W3C DTCG type — must be one of:
+            color, dimension, fontFamily, fontWeight, number,
+            duration, cubicBezier, shadow, strokeStyle, border,
+            transition, gradient, typography
         description: Optional human-readable description
         source: Optional source indicator (extracted, recommended, semantic)
+        extensions: Optional dict for $extensions (custom metadata like frequency, confidence)
     """
     token = {"$type": token_type, "$value": value}
-    if description:
+    if description and source:
+        token["$description"] = f"[{source}] {description}"
+    elif description:
         token["$description"] = description
-    if source:
-        token["$description"] = f"[{source}] {description or ''}"
+    if extensions:
+        token["$extensions"] = {"com.design-system-extractor": extensions}
     return token
 
 
@@ -2982,21 +2991,42 @@ def _shadow_to_dtcg(shadow_dict: dict) -> dict:
 def _get_semantic_color_overrides() -> dict:
     """Build color hex->semantic name map.
 
-    v3: AURORA naming_map is the SINGLE naming authority.
-    Falls back to normalizer suggested_name, then _generate_color_name_from_hex.
+    v3.2: Color classifier is the PRIMARY naming authority (deterministic, reproducible).
+    AURORA is a SECONDARY enhancer — it can only ADD semantic role names
+    (brand.primary, text.secondary, etc.) but cannot override palette names.
+
+    Authority chain:
+      1. Color classifier (rule-based, covers ALL colors)
+      2. AURORA naming_map (LLM, only brand/text/bg/border/feedback roles accepted)
+      3. Normalizer suggested_name (fallback)
     """
     overrides = {}  # hex -> semantic_name
 
-    # PRIMARY: AURORA's naming_map (covers ALL colors if critic passed)
+    # PRIMARY: Color classifier (deterministic, covers ALL colors)
+    classified = getattr(state, 'color_classification', None)
+    if classified and hasattr(classified, 'colors'):
+        for cc in classified.colors:
+            hex_clean = cc.hex.strip().lower()
+            if hex_clean.startswith('#') and cc.token_name:
+                overrides[hex_clean] = cc.token_name
+
+    # SECONDARY: AURORA naming_map — ONLY accept semantic role upgrades
+    # AURORA can promote "color.blue.500" to "color.brand.primary"
+    # but cannot rename palette colors to different palette names
+    _SEMANTIC_ROLES = {'brand.', 'text.', 'bg.', 'border.', 'feedback.'}
     brand_result = getattr(state, 'brand_result', None)
     if brand_result:
         naming_map = getattr(brand_result, 'naming_map', None)
         if isinstance(naming_map, dict) and naming_map:
             for hex_val, name in naming_map.items():
                 hex_clean = str(hex_val).strip().lower()
-                if hex_clean.startswith('#') and name:
-                    # Ensure color. prefix
-                    clean_name = name if name.startswith('color.') else f'color.{name}'
+                if not hex_clean.startswith('#') or not name:
+                    continue
+                clean_name = name if name.startswith('color.') else f'color.{name}'
+                # Only accept semantic role names from AURORA
+                name_after_color = clean_name[6:]  # strip "color."
+                is_semantic_role = any(name_after_color.startswith(r) for r in _SEMANTIC_ROLES)
+                if is_semantic_role:
                     overrides[hex_clean] = clean_name
 
     return overrides
@@ -3013,90 +3043,48 @@ def _is_valid_hex_color(value: str) -> bool:
 
 
 def _generate_color_name_from_hex(hex_val: str, used_names: set = None) -> str:
-    """Generate a semantic color name based on the color's HSL characteristics.
+    """DEPRECATED: Use normalizer._generate_preliminary_name() instead.
 
-    Returns names like: color.neutral.400, color.blue.500, color.red.300
-    Uses standard design system naming conventions.
+    Kept as thin wrapper for backward compatibility.
+    Delegates to normalizer's naming logic via color_utils.categorize_color().
     """
+    from core.color_utils import categorize_color, parse_color
     import colorsys
 
     used_names = used_names or set()
 
-    # Parse hex to RGB
     hex_clean = hex_val.lstrip('#').lower()
     if len(hex_clean) == 3:
-        hex_clean = ''.join([c*2 for c in hex_clean])
+        hex_clean = ''.join([c * 2 for c in hex_clean])
 
     try:
         r = int(hex_clean[0:2], 16) / 255
         g = int(hex_clean[2:4], 16) / 255
         b = int(hex_clean[4:6], 16) / 255
     except (ValueError, IndexError):
-        return "color.other.base"
+        return "color.other.500"
 
-    # Convert to HSL
     h, l, s = colorsys.rgb_to_hls(r, g, b)
-    hue = h * 360
-    saturation = s
-    lightness = l
+    color_family = categorize_color(hex_val) or "neutral"
 
-    # Determine color family based on hue (for saturated colors)
-    if saturation < 0.1:
-        # Grayscale / neutral
-        color_family = "neutral"
-    else:
-        # Map hue to color name
-        if hue < 15 or hue >= 345:
-            color_family = "red"
-        elif hue < 45:
-            color_family = "orange"
-        elif hue < 75:
-            color_family = "yellow"
-        elif hue < 150:
-            color_family = "green"
-        elif hue < 195:
-            color_family = "teal"
-        elif hue < 255:
-            color_family = "blue"
-        elif hue < 285:
-            color_family = "purple"
-        elif hue < 345:
-            color_family = "pink"
-        else:
-            color_family = "red"
+    # Numeric shade from lightness (matches normalizer._generate_preliminary_name)
+    if l >= 0.95: shade = "50"
+    elif l >= 0.85: shade = "100"
+    elif l >= 0.75: shade = "200"
+    elif l >= 0.65: shade = "300"
+    elif l >= 0.50: shade = "400"
+    elif l >= 0.40: shade = "500"
+    elif l >= 0.30: shade = "600"
+    elif l >= 0.20: shade = "700"
+    elif l >= 0.10: shade = "800"
+    else: shade = "900"
 
-    # Determine shade based on lightness (100-900 scale)
-    if lightness >= 0.95:
-        shade = "50"
-    elif lightness >= 0.85:
-        shade = "100"
-    elif lightness >= 0.75:
-        shade = "200"
-    elif lightness >= 0.65:
-        shade = "300"
-    elif lightness >= 0.50:
-        shade = "400"
-    elif lightness >= 0.40:
-        shade = "500"
-    elif lightness >= 0.30:
-        shade = "600"
-    elif lightness >= 0.20:
-        shade = "700"
-    elif lightness >= 0.10:
-        shade = "800"
-    else:
-        shade = "900"
-
-    # Generate base name
     base_name = f"color.{color_family}.{shade}"
-
-    # Handle conflicts by adding suffix
     final_name = base_name
     suffix = 1
     while final_name in used_names:
         suffix += 1
         final_name = f"{base_name}_{suffix}"
-
     return final_name
 
 
@@ -3210,7 +3198,14 @@ def export_stage1_json(convention: str = "semantic"):
             log_callback=state.log,
         )
         for c in classification.colors:
-            dtcg_token = _to_dtcg_token(c.hex, "color", description=f"Rule-based: {c.category}")
+            ext = {"frequency": c.frequency, "confidence": c.confidence, "category": c.category}
+            if c.evidence:
+                ext["evidence"] = c.evidence[:3]  # Top 3 evidence items
+            dtcg_token = _to_dtcg_token(
+                c.hex, "color",
+                description=f"{c.category}: {c.role}",
+                extensions=ext,
+            )
             _flat_key_to_nested(c.token_name, dtcg_token, result)
             token_count += 1
 
@@ -3285,7 +3280,7 @@ def export_stage1_json(convention: str = "semantic"):
             token_count += 1
 
     # =========================================================================
-    # BORDER RADIUS — Nested structure (DTCG uses "dimension" type for radii)
+    # BORDER RADIUS — W3C DTCG "dimension" type
     # =========================================================================
     if state.desktop_normalized and state.desktop_normalized.radius:
         seen_radius = {}
@@ -3294,7 +3289,14 @@ def export_stage1_json(convention: str = "semantic"):
             if token_name is None:
                 continue  # Duplicate radius — skip
             flat_key = token_name
-            dtcg_token = _to_dtcg_token(r.value, "dimension", description="Extracted from site")
+            ext = {"frequency": r.frequency}
+            if hasattr(r, 'fits_base_4') and r.fits_base_4 is not None:
+                ext["fitsBase4"] = r.fits_base_4
+            if hasattr(r, 'fits_base_8') and r.fits_base_8 is not None:
+                ext["fitsBase8"] = r.fits_base_8
+            dtcg_token = _to_dtcg_token(r.value, "dimension",
+                                         description=f"Border radius ({name})",
+                                         extensions=ext)
             _flat_key_to_nested(flat_key, dtcg_token, result)
             token_count += 1
 
@@ -3302,18 +3304,22 @@ def export_stage1_json(convention: str = "semantic"):
     # SHADOWS — W3C DTCG shadow format
     # =========================================================================
     if state.desktop_normalized and state.desktop_normalized.shadows:
-        shadow_names = ["xs", "sm", "md", "lg", "xl", "2xl"]
+        shadow_tier_names = ["xs", "sm", "md", "lg", "xl", "2xl"]
         sorted_shadows = sorted(
             state.desktop_normalized.shadows.items(),
             key=lambda x: _get_shadow_blur(x[1].value),
         )
         for i, (name, s) in enumerate(sorted_shadows):
-            size_name = shadow_names[i] if i < len(shadow_names) else str(i + 1)
+            size_name = shadow_tier_names[i] if i < len(shadow_tier_names) else str(i + 1)
             flat_key = f"shadow.{size_name}"
-            # Parse CSS shadow and convert to DTCG format
             parsed = _parse_shadow_to_tokens_studio(s.value)
             dtcg_shadow_value = _shadow_to_dtcg(parsed)
-            dtcg_token = _to_dtcg_token(dtcg_shadow_value, "shadow", description="Extracted from site")
+            ext = {"frequency": s.frequency, "rawCSS": s.value}
+            if hasattr(s, 'blur_px') and s.blur_px is not None:
+                ext["blurPx"] = s.blur_px
+            dtcg_token = _to_dtcg_token(dtcg_shadow_value, "shadow",
+                                         description=f"Elevation {size_name}",
+                                         extensions=ext)
             _flat_key_to_nested(flat_key, dtcg_token, result)
             token_count += 1
 

@@ -1214,6 +1214,34 @@ def _apply_sentinel_fixes(result: BestPracticesResult, rule_engine, errors: list
     return result
 
 
+def filter_aurora_naming_map(aurora: BrandIdentification) -> dict:
+    """Filter AURORA naming_map to only keep semantic role assignments.
+
+    AURORA is a secondary naming authority — it can assign semantic roles
+    (brand.primary, text.secondary, bg.primary, feedback.error, etc.)
+    but cannot override palette names (blue.500, neutral.700, etc.).
+
+    The color_classifier is the primary naming authority.
+
+    Returns:
+        Dict of hex -> semantic_name (only role-based names).
+    """
+    SEMANTIC_PREFIXES = ('brand.', 'text.', 'bg.', 'border.', 'feedback.')
+    filtered = {}
+
+    for hex_val, name in (aurora.naming_map or {}).items():
+        hex_clean = str(hex_val).strip().lower()
+        if not hex_clean.startswith('#') or not name:
+            continue
+        clean_name = name if name.startswith('color.') else f'color.{name}'
+        # Extract the part after "color."
+        after_prefix = clean_name[6:]  # "brand.primary", "blue.500", etc.
+        if any(after_prefix.startswith(sp) for sp in SEMANTIC_PREFIXES):
+            filtered[hex_clean] = clean_name
+
+    return filtered
+
+
 def post_validate_stage2(
     aurora: BrandIdentification,
     sentinel: BestPracticesResult,

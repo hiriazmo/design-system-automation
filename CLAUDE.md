@@ -1,11 +1,77 @@
-# Design System Extractor v3.1 — Project Context
+# Design System Extractor v3.2 — Project Context
 
 ## Overview
 
 A multi-agent system that extracts, analyzes, and recommends improvements for design systems from websites. The system operates in two stages:
 
-1. **Stage 1 (Deterministic)**: Extract CSS values → Normalize → Rule Engine analysis → **Rule-Based Color Classification** (free, no LLM)
-2. **Stage 2 (LLM-powered, advisory only)**: Brand insights → Benchmark comparison → Best practices → Final synthesis
+1. **Stage 1 (Deterministic)**: Extract CSS values → Normalize (colors, radius, shadows, typography, spacing) → Rule Engine analysis → **Rule-Based Color Classification** (free, no LLM)
+2. **Stage 2 (LLM-powered)**: Brand identification (AURORA) → Benchmark comparison (ATLAS) → Best practices (SENTINEL) → Synthesis (NEXUS)
+3. **Export**: W3C DTCG v1 compliant JSON → Figma Plugin (visual spec + styles/variables)
+
+---
+
+## CURRENT STATUS: v3.2 (Feb 2026)
+
+### What's Working
+
+| Component | Status | Notes |
+|-----------|--------|-------|
+| CSS Extraction (Playwright) | ✅ Working | Desktop + mobile viewports |
+| Color normalization | ✅ Working | Single numeric shade system (50-900) |
+| Color classification | ✅ Working | `core/color_classifier.py` (815 lines, 100% deterministic) |
+| Radius normalization | ✅ Working | Parse, deduplicate, sort, name (none/sm/md/lg/xl/2xl/full) |
+| Shadow normalization | ✅ Working | Parse, sort by blur, deduplicate, name (xs/sm/md/lg/xl) |
+| Typography normalization | ✅ Working | Desktop/mobile split, weight suffix |
+| Spacing normalization | ✅ Working | GCD-based grid detection, base-8 alignment |
+| Rule engine | ✅ Working | Type scale, WCAG AA, spacing grid, color statistics |
+| LLM agents (ReAct) | ✅ Working | AURORA, ATLAS, SENTINEL, NEXUS with critic/retry |
+| W3C DTCG export | ✅ Working | $value, $type, $description, $extensions |
+| Figma plugin - visual spec | ✅ Working | Separate frames, AA badges, horizontal layout |
+| Figma plugin - styles/variables | ✅ Working | Paint, text, effect styles + variable collections |
+| Shadow interpolation | ✅ Working | Always produces 5 levels (xs→xl), interpolates if fewer extracted |
+
+### Architecture Decisions (v3.2)
+
+#### Naming Authority Chain (RESOLVED)
+The three-naming-system conflict from v2/v3.0 is resolved:
+
+```
+1. Color Classifier (PRIMARY) — deterministic, covers ALL colors
+   └── Rule-based: CSS evidence → category → token name
+   └── 100% reproducible, logged with evidence
+
+2. AURORA LLM (SECONDARY) — semantic role enhancer ONLY
+   └── Can promote "color.blue.500" → "color.brand.primary"
+   └── CANNOT rename palette colors
+   └── Only brand/text/bg/border/feedback roles accepted
+   └── filter_aurora_naming_map() enforces this boundary
+
+3. Normalizer (FALLBACK) — preliminary hue+shade names
+   └── Only used if classifier hasn't run yet
+   └── _generate_preliminary_name() → "color.blue.500"
+```
+
+**app.py `_get_semantic_color_overrides()`** implements this chain:
+- PRIMARY: `state.color_classification.colors` (from color_classifier)
+- SECONDARY: `state.brand_result.naming_map` (from AURORA, filtered to semantic roles only)
+
+**`_generate_color_name_from_hex()`** is DEPRECATED — kept as thin wrapper for edge cases.
+
+#### W3C DTCG v1 Compliance (2025.10 Spec)
+- `$type` values: `color`, `dimension`, `typography`, `shadow`
+- `$value` for all token values
+- `$description` for human-readable descriptions
+- `$extensions` with namespaced metadata: `com.design-system-extractor`
+  - Colors: `{frequency, confidence, category, evidence}`
+  - Radius: `{frequency, fitsBase4, fitsBase8}`
+  - Shadows: `{frequency, rawCSS, blurPx}`
+- Nested structure (not flat)
+- `_flat_key_to_nested()` prevents nesting inside DTCG leaf nodes
+
+#### Deprecated Components
+- `agents/semantic_analyzer.py` — superseded by color_classifier + normalizer._infer_role_hint()
+- `agents/stage2_graph.py` — old LangGraph parallel system, replaced by direct async in app.py
+- `app.py _generate_color_name_from_hex()` — third naming system, now thin wrapper
 
 ---
 
@@ -30,16 +96,35 @@ CSS Evidence → Category:
   everything else → PALETTE (named by hue.shade)
 ```
 
-### What AURORA Does Now (Advisory Only)
-- Does NOT output naming_map
+### What AURORA Does Now
 - Provides brand insights, palette strategy, cohesion score
-- LLM reasoning is shown in logs but doesn't affect token names
+- naming_map is filtered to semantic roles only (brand/text/bg/border/feedback)
+- LLM reasoning is shown in logs
+- `filter_aurora_naming_map()` in llm_agents.py enforces the boundary
 
 ### Files Changed in v3.1
 - `core/color_classifier.py` — NEW: Rule-based classifier with dedup, caps, naming conventions
 - `app.py` — Export functions use classifier instead of LLM naming; convention picker in UI
 - `agents/llm_agents.py` — AURORA prompt updated to advisory-only
 - `CLAUDE.md` — This documentation
+
+---
+
+## v3.2 FIX: DTCG COMPLIANCE + NAMING AUTHORITY (Feb 2026)
+
+### What Changed
+1. **W3C DTCG v1 strict compliance**: `_to_dtcg_token()` now supports `$extensions` with namespaced metadata
+2. **Single naming authority resolved**: Color classifier is PRIMARY, AURORA is SECONDARY (semantic roles only)
+3. **`_get_semantic_color_overrides()` rewritten**: Uses classifier as primary, AURORA filtered to role-only names
+4. **`filter_aurora_naming_map()` added**: In llm_agents.py, strips non-semantic names from AURORA output
+5. **`_generate_color_name_from_hex()` deprecated**: Thin wrapper using `categorize_color()` from color_utils
+6. **`semantic_analyzer.py` deprecated**: Marked with deprecation notice, functionality absorbed elsewhere
+
+### Files Changed in v3.2
+- `app.py` — DTCG helpers enhanced, `_get_semantic_color_overrides()` rewritten, hex-name function deprecated
+- `agents/llm_agents.py` — Added `filter_aurora_naming_map()` function
+- `agents/semantic_analyzer.py` — Deprecated with notice
+- `CLAUDE.md` — Updated to current status
 
 ---
 
@@ -1008,54 +1093,77 @@ NormalizedTokens:
 
 ---
 
-## REVISED EXECUTION ORDER (Stage 1 fixes interleaved, not deferred)
+## EXECUTION STATUS (Updated Feb 2026)
 
-The original plan was "fix Stage 2 first, Stage 1 later." But the audit reveals:
-**If normalizer sends word-based shade names to AURORA, AURORA's ReAct naming will STILL conflict with normalizer names in the export merge.**
-
-The pre-processing layer (Step 2 in the old plan) was supposed to fix this. But that's a bandaid — it re-normalizes what the normalizer already normalized. It's cleaner to fix the normalizer itself so it produces correct output from the start.
-
-### New Execution Order:
+### Phases 1-3: COMPLETED
 
 ```
-PHASE 1: FIX NORMALIZER (makes Stage 1 output clean)
-  1a. Unify color naming → numeric shades only
-  1b. Add radius normalization (parse, deduplicate, sort, name)
-  1c. Add shadow normalization (parse, sort by blur, name)
-  1d. Feed semantic_analyzer role hints into normalizer
+PHASE 1: FIX NORMALIZER ✅ DONE
+  1a. ✅ Unify color naming → numeric shades only (_generate_preliminary_name)
+  1b. ✅ Add radius normalization (parse, deduplicate, sort, name) — normalizer.py:626-778
+  1c. ✅ Add shadow normalization (parse, sort by blur, name) — normalizer.py:784-940
+  1d. ✅ Feed role hints into normalizer — normalizer._infer_role_hint()
 
-PHASE 2: FIX STAGE 2 (agents can now trust their input)
-  2a. Consolidate two Stage 2 systems into one
-  2b. Rewrite AURORA with ReAct + critic (names ALL colors, not 10)
-  2c. Rewrite SENTINEL with grounded scoring + critic
-  2d. Rewrite NEXUS with ToT
-  2e. Add post-validation layer
+PHASE 2: FIX STAGE 2 ✅ DONE
+  2a. ✅ Consolidated — llm_agents.py is primary, stage2_graph.py deprecated
+  2b. ✅ AURORA with ReAct + critic + retry — llm_agents.py:420-470
+  2c. ✅ SENTINEL with grounded scoring + cross-reference critic
+  2d. ✅ NEXUS with ToT (two-perspective evaluation)
+  2e. ✅ Post-validation layer — post_validate_stage2()
 
-PHASE 3: FIX EXPORT (single naming authority)
-  3a. AURORA naming_map is THE authority (not 3-way merge)
-  3b. Radius/shadow export uses normalizer output directly
-  3c. Validation before JSON write
+PHASE 3: FIX EXPORT ✅ DONE (v3.2)
+  3a. ✅ Color classifier = PRIMARY authority, AURORA = semantic roles only
+  3b. ✅ Radius/shadow export uses normalizer output directly
+  3c. ✅ W3C DTCG v1 compliance with $extensions metadata
+  3d. ✅ filter_aurora_naming_map() enforces role-only boundary
 
-PHASE 4: FIX EXTRACTION (nice-to-have, not blocking)
-  4a. Font family detection improvement
-  4b. Rule engine: radius grid analysis
-  4c. Rule engine: shadow elevation analysis
+PHASE 4: EXTRACTION IMPROVEMENTS (NOT STARTED)
+  4a. ❌ Font family detection — still returns "sans-serif" fallback
+  4b. ❌ Rule engine: radius grid analysis
+  4c. ❌ Rule engine: shadow elevation analysis
 ```
 
-### Why this order is better:
+### PHASE 5: COMPONENT GENERATION (FUTURE — NOT STARTED)
 
-1. **Phase 1 first** because AURORA can't name colors well if the input names are garbage. The ReAct prompt says "observe your naming" but if the LLM sees `color.blue.light` in its input AND is asked to output `color.blue.300`, it gets confused.
+Based on strategic research (Feb 2026), the next major feature is automated component generation in Figma:
 
-2. **Phase 2 after Phase 1** because now the LLM agents receive clean, consistently-named input. AURORA's job becomes "confirm or improve these names" rather than "fix the mess from normalizer."
+```
+PHASE 5: FIGMA COMPONENT GENERATION
+  5a. Component Definition Schema (JSON defining anatomy + token bindings + variants)
+  5b. Token-to-Component binding engine
+  5c. Figma Plugin: createComponent() + combineAsVariants() + setBoundVariable()
+  5d. MVP Components: Button (60 variants), TextInput (8), Card (2), Toast (4), Checkbox+Radio (12)
+  5e. Variable Collections: Primitives, Semantic, Spacing, Radius, Typography
 
-3. **Phase 3 after Phase 2** because the export layer just needs to respect one naming authority (AURORA), not reconcile three.
+PHASE 6: ECOSYSTEM INTEGRATION
+  6a. Style Dictionary v4 compatible output (50+ platform formats for free)
+  6b. Tokens Studio compatible JSON import
+  6c. Dembrandt JSON as alternative input source
+  6d. CI/CD GitHub Action for design system regression checks
 
-4. **Phase 4 last** because font family and enhanced rule engine analysis are improvements, not blockers.
+PHASE 7: MCP INTEGRATION
+  7a. Expose extractor as MCP tool server
+  7b. Claude Desktop: "Extract design system from example.com"
+  7c. Community Figma MCP bridge for push-to-Figma
+```
 
-### Deploy Plan:
-- **Deploy 1**: After Phase 1 (normalizer fixes) — even without Stage 2 improvements, the export will be cleaner
-- **Deploy 2**: After Phase 2 + 3 (full Stage 2 rework + export) — the big quality jump
-- **Deploy 3**: After Phase 4 (font family, enhanced analysis) — polish
+### Strategic Positioning
+
+**"Lighthouse for Design Systems"** — We are NOT a token management platform (Tokens Studio), NOT a documentation platform (Zeroheight), NOT an extraction tool (Dembrandt). We are the **automated audit + bootstrap tool** that sits upstream of all of those.
+
+**Unique differentiators no competitor has:**
+- Type scale ratio detection + standard scale matching
+- Spacing grid detection (GCD-based, base-8 alignment scoring)
+- LLM brand identification from CSS usage patterns
+- Holistic design system quality score (0-100)
+- Visual spec page auto-generated in Figma
+- Benchmark comparison against established design systems
+
+**Key competitors to watch:**
+- Dembrandt (1,300★) — does extraction better, but no analysis
+- Tokens Studio (264K users) — does Figma management better, but no extraction
+- Knapsack ($10M funding) — building ingestion engine, biggest strategic threat
+- html.to.design — captures layouts but not tokens/variables
 
 ---
 
