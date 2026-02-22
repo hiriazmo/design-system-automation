@@ -1502,12 +1502,14 @@ async def run_stage2_analysis_v2(
             shadow_count = 0
             if state.desktop_normalized:
                 shadow_count = len(getattr(state.desktop_normalized, 'shadows', {}))
-            tobe_shadow_count = max(shadow_count, 5)  # At least 5, interpolated if needed
+            tobe_shadow_count = min(shadow_count, 5)  # Export only what was extracted (capped at 5)
+            _SHADOW_LABELS = {1: "md", 2: "sm → lg", 3: "sm → md → lg", 4: "xs → sm → lg → xl", 5: "xs → sm → md → lg → xl"}
+            tobe_label = _SHADOW_LABELS.get(tobe_shadow_count, f"{tobe_shadow_count} levels")
             cards.append(_render_as_is_to_be(
                 "Shadows", f"{shadow_count} levels",
                 "Elevation tokens" if shadow_count > 0 else "No shadows found",
                 f"{tobe_shadow_count} levels",
-                "xs → sm → md → lg → xl" + (" (interpolated)" if shadow_count < 5 else ""),
+                tobe_label,
                 icon="🌫️"
             ))
             asis_tobe_html = "".join(cards)
@@ -3378,22 +3380,33 @@ def export_tokens_json(convention: str = "semantic"):
 
         # Semantic categories get light/dark variants; palette gets full 50-900 ramps
         _SEMANTIC_CATS = {"brand", "text", "bg", "border", "feedback"}
-        _SEMANTIC_VARIANT_SHADES = {"50": 0.85, "200": 0.5, "800": -0.5, "950": -0.85}
-        # factor > 0 = lighter, factor < 0 = darker
+        _PALETTE_SHADES = ["50", "100", "200", "300", "400", "500", "600", "700", "800", "900"]
+        _SEMANTIC_VARIANT_SHADES = ["50", "200", "800", "950"]
+
+        # Track which palette hue families already have ramps (avoid duplicates)
+        _palette_hues_with_ramps = set()
 
         for c in classification.colors:
             flat_key = c.token_name
             is_semantic = c.category in _SEMANTIC_CATS
 
             if apply_ramps and not is_semantic:
-                # PALETTE colors: full 50-900 ramp
+                # PALETTE colors: full 50-900 ramp under hue family
+                # token_name = "color.blue.700" → base = "color.blue" (strip shade)
+                parts = flat_key.rsplit(".", 1)
+                hue_base = parts[0] if len(parts) > 1 else flat_key
+
+                # Only one ramp per hue family (first/most-used color wins)
+                if hue_base in _palette_hues_with_ramps:
+                    continue
+                _palette_hues_with_ramps.add(hue_base)
+
                 try:
                     ramp = generate_color_ramp(c.hex)
-                    shades = ["50", "100", "200", "300", "400", "500", "600", "700", "800", "900"]
-                    for shade in shades:
+                    for shade in _PALETTE_SHADES:
                         shade_hex = ramp.get(shade)
                         if shade_hex:
-                            shade_key = f"{flat_key}.{shade}"
+                            shade_key = f"{hue_base}.{shade}"
                             dtcg_token = _to_dtcg_token(shade_hex, "color")
                             _flat_key_to_nested(shade_key, dtcg_token, result)
                             token_count += 1
@@ -3403,15 +3416,17 @@ def export_tokens_json(convention: str = "semantic"):
                     token_count += 1
 
             elif apply_ramps and is_semantic:
-                # SEMANTIC colors: base + light/dark variants
-                # Base color
-                dtcg_token = _to_dtcg_token(c.hex, "color")
-                _flat_key_to_nested(flat_key, dtcg_token, result)
-                token_count += 1
-                # Generate tint/shade variants
+                # SEMANTIC colors: base + tint/shade variants
+                # Build as a namespace dict (not sequential leaf calls)
+                # so that base and variants coexist without nesting conflict
                 try:
                     ramp = generate_color_ramp(c.hex)
-                    for variant_shade, _ in _SEMANTIC_VARIANT_SHADES.items():
+                    # Emit base as "DEFAULT" inside a namespace
+                    default_key = f"{flat_key}.DEFAULT"
+                    dtcg_token = _to_dtcg_token(c.hex, "color")
+                    _flat_key_to_nested(default_key, dtcg_token, result)
+                    token_count += 1
+                    for variant_shade in _SEMANTIC_VARIANT_SHADES:
                         variant_hex = ramp.get(variant_shade)
                         if variant_hex:
                             variant_key = f"{flat_key}.{variant_shade}"
@@ -3419,7 +3434,10 @@ def export_tokens_json(convention: str = "semantic"):
                             _flat_key_to_nested(variant_key, dtcg_token, result)
                             token_count += 1
                 except (ValueError, KeyError, TypeError, IndexError):
-                    pass  # Base already exported above
+                    # Fallback: just base color
+                    dtcg_token = _to_dtcg_token(c.hex, "color")
+                    _flat_key_to_nested(flat_key, dtcg_token, result)
+                    token_count += 1
 
             else:
                 # No ramps — base color only
@@ -3587,10 +3605,16 @@ def export_tokens_json(convention: str = "semantic"):
             token_count += 1
 
     # =========================================================================
-    # SHADOWS — W3C DTCG format with shadow spec + interpolation to 5 levels
+    # SHADOWS — W3C DTCG format — export ONLY what was actually extracted
     # =========================================================================
-    TARGET_SHADOW_COUNT = 5
-    shadow_names = ["shadow.xs", "shadow.sm", "shadow.md", "shadow.lg", "shadow.xl"]
+    # Name mapping: assign best-fit names based on how many shadows were found
+    _SHADOW_NAMES_BY_COUNT = {
+        1: ["shadow.md"],
+        2: ["shadow.sm", "shadow.lg"],
+        3: ["shadow.sm", "shadow.md", "shadow.lg"],
+        4: ["shadow.xs", "shadow.sm", "shadow.lg", "shadow.xl"],
+        5: ["shadow.xs", "shadow.sm", "shadow.md", "shadow.lg", "shadow.xl"],
+    }
 
     if state.desktop_normalized and state.desktop_normalized.shadows:
         sorted_shadows = sorted(
@@ -3610,62 +3634,16 @@ def export_tokens_json(convention: str = "semantic"):
                 "color": p.get("color", "rgba(0,0,0,0.25)"),
             })
 
-        # Interpolate to fill TARGET_SHADOW_COUNT levels
-        def _lerp(a, b, t):
-            return a + (b - a) * t
-
-        def _lerp_shadow(s1, s2, t):
-            """Interpolate between two shadow dicts at factor t (0.0=s1, 1.0=s2)."""
-            import re
-            # Interpolate numeric values
-            interp = {
-                "x": round(_lerp(s1["x"], s2["x"], t), 1),
-                "y": round(_lerp(s1["y"], s2["y"], t), 1),
-                "blur": round(_lerp(s1["blur"], s2["blur"], t), 1),
-                "spread": round(_lerp(s1["spread"], s2["spread"], t), 1),
-            }
-            # Interpolate alpha from rgba color string
-            alpha1, alpha2 = 0.25, 0.25
-            m1 = re.search(r'rgba?\([^)]*,\s*([\d.]+)\)', s1["color"])
-            m2 = re.search(r'rgba?\([^)]*,\s*([\d.]+)\)', s2["color"])
-            if m1:
-                alpha1 = float(m1.group(1))
-            if m2:
-                alpha2 = float(m2.group(1))
-            interp_alpha = round(_lerp(alpha1, alpha2, t), 3)
-            interp["color"] = f"rgba(0, 0, 0, {interp_alpha})"
-            return interp
-
-        final_shadows = []
         n = len(parsed_shadows)
-        if n >= TARGET_SHADOW_COUNT:
-            # Already have enough — take the first 5 sorted by blur
-            final_shadows = parsed_shadows[:TARGET_SHADOW_COUNT]
-        elif n == 1:
-            # Only 1 shadow — generate a 5-level scale around it
-            base = parsed_shadows[0]
-            for i in range(TARGET_SHADOW_COUNT):
-                factor = (i + 1) / 3.0  # 0.33, 0.67, 1.0, 1.33, 1.67
-                final_shadows.append({
-                    "x": round(base["x"] * factor, 1),
-                    "y": round(max(1, base["y"] * factor), 1),
-                    "blur": round(max(1, base["blur"] * factor), 1),
-                    "spread": round(base["spread"] * factor, 1),
-                    "color": f"rgba(0, 0, 0, {round(0.04 + i * 0.04, 3)})",
-                })
-        elif n >= 2:
-            # Interpolate between extracted shadows to fill 5 levels
-            for i in range(TARGET_SHADOW_COUNT):
-                t = i / (TARGET_SHADOW_COUNT - 1)  # 0.0 to 1.0
-                # Map t to source shadow pair
-                src_pos = t * (n - 1)
-                lo = int(src_pos)
-                hi = min(lo + 1, n - 1)
-                frac = src_pos - lo
-                final_shadows.append(_lerp_shadow(parsed_shadows[lo], parsed_shadows[hi], frac))
+        # Cap at 5 maximum, take first 5 sorted by blur
+        final_shadows = parsed_shadows[:5]
+        names = _SHADOW_NAMES_BY_COUNT.get(len(final_shadows))
+        if names is None:
+            # Fallback for n > 5: xs, sm, md, lg, xl
+            names = [f"shadow.{i+1}" for i in range(len(final_shadows))]
 
         for i, shadow in enumerate(final_shadows):
-            token_name = shadow_names[i] if i < len(shadow_names) else f"shadow.{i + 1}"
+            token_name = names[i] if i < len(names) else f"shadow.{i + 1}"
             dtcg_value = {
                 "color": shadow["color"],
                 "offsetX": f"{shadow['x']}px",
