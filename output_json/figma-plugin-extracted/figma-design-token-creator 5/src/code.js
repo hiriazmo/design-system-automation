@@ -858,19 +858,20 @@ figma.ui.onmessage = async function(msg) {
         } catch (e) { sampleFontFamily = 'Inter'; sampleFont = labelFont; sampleFontBold = boldFont; }
       }
 
-      var pageY = 0; // tracks vertical position of next frame on the page
+      // Collect all frames — position them at the very end
+      var allFrames = [];
 
-      // ── Helper: create a section FRAME ──
+      // ── Helper: create a section FRAME (positioned later) ──
       function createSectionFrame(name, contentHeight) {
         var frame = figma.createFrame();
         frame.name = name;
         frame.resize(FRAME_W, contentHeight);
         frame.x = 0;
-        frame.y = pageY;
+        frame.y = 0; // will be repositioned at the end
         frame.fills = [{ type: 'SOLID', color: { r: 1, g: 1, b: 1 } }];
         frame.clipsContent = false;
         specPage.appendChild(frame);
-        pageY += contentHeight + SECTION_GAP;
+        allFrames.push(frame);
         return frame;
       }
 
@@ -1282,7 +1283,17 @@ figma.ui.onmessage = async function(msg) {
         }
       }
 
-      figma.ui.postMessage({ type: 'spec-complete', message: 'Visual spec created with ' + specPage.children.length + ' section frames!' });
+      // ══════════════════════════════════════════════════════════
+      // POSITION ALL FRAMES — stack vertically with proper spacing
+      // This runs AFTER all frames are created and resized to actual content.
+      // ══════════════════════════════════════════════════════════
+      var stackY = 0;
+      for (var fi = 0; fi < allFrames.length; fi++) {
+        allFrames[fi].y = stackY;
+        stackY += allFrames[fi].height + SECTION_GAP;
+      }
+
+      figma.ui.postMessage({ type: 'spec-complete', message: 'Visual spec created with ' + allFrames.length + ' section frames!' });
 
     } catch (error) {
       console.error('Error creating visual spec:', error);
