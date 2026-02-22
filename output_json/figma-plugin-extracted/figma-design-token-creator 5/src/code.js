@@ -915,14 +915,9 @@ figma.ui.onmessage = async function(msg) {
         for (var so = 0; so < semOrder.length; so++) { if (colorGroups[semOrder[so]]) sortedGroups.push(semOrder[so]); }
         for (var go = 0; go < groupOrder.length; go++) { if (sortedGroups.indexOf(groupOrder[go]) === -1) sortedGroups.push(groupOrder[go]); }
 
-        // Calculate height: each group = heading(40) + one row of swatches(SWATCH_H_COLOR + SWATCH_META_H + 16)
-        var colorsPerRow = Math.floor((CONTENT_W + SWATCH_GAP) / (SWATCH_W + SWATCH_GAP));
-        var totalColorH = SECTION_PAD;
-        for (var cgi = 0; cgi < sortedGroups.length; cgi++) {
-          var rows = Math.ceil(colorGroups[sortedGroups[cgi]].length / colorsPerRow);
-          totalColorH += 40 + rows * (SWATCH_H_COLOR + SWATCH_META_H + ITEM_GAP) + 16;
-        }
-        totalColorH += SECTION_PAD;
+        // Calculate initial height estimate (will be resized at end)
+        var colorsPerRow = Math.floor((CONTENT_W - 140 + SWATCH_GAP) / (SWATCH_W + SWATCH_GAP));
+        var totalColorH = 2000; // generous initial estimate, resized later
 
         var colorFrame = createSectionFrame('Colors', totalColorH);
         var cy = SECTION_PAD;
@@ -930,6 +925,44 @@ figma.ui.onmessage = async function(msg) {
         // Section title
         addText(colorFrame, 'COLORS', boldFont, 32, MARGIN, cy, DARK);
         cy += 48;
+
+        // Helper to render a single color card at position
+        function renderColorCard(frame, ct, sx, sy) {
+            var swatch = figma.createRectangle();
+            swatch.resize(SWATCH_W, SWATCH_H_COLOR);
+            swatch.x = sx; swatch.y = sy;
+            swatch.topLeftRadius = 8; swatch.topRightRadius = 8;
+            swatch.fills = [{ type: 'SOLID', color: hexToRgb(ct.value) }];
+            frame.appendChild(swatch);
+
+            // AA badge
+            var aa = getAAResult(ct.value);
+            var badgeText = aa.passAA ? 'AA ✓ ' + aa.ratio + ':1' : 'AA ✗ ' + aa.ratio + ':1';
+            var badgeColor = aa.bestOn === 'white' ? { r: 1, g: 1, b: 1 } : { r: 0, g: 0, b: 0 };
+            addText(frame, badgeText, labelFont, 10, sx + 8, sy + SWATCH_H_COLOR - 18, badgeColor);
+
+            // Metadata area
+            var metaBg = figma.createRectangle();
+            metaBg.resize(SWATCH_W, SWATCH_META_H);
+            metaBg.x = sx; metaBg.y = sy + SWATCH_H_COLOR;
+            metaBg.bottomLeftRadius = 8; metaBg.bottomRightRadius = 8;
+            metaBg.fills = [{ type: 'SOLID', color: { r: 0.97, g: 0.97, b: 0.98 } }];
+            metaBg.strokes = [{ type: 'SOLID', color: { r: 0.9, g: 0.9, b: 0.9 } }];
+            metaBg.strokeWeight = 1;
+            frame.appendChild(metaBg);
+
+            var nameParts = ct.name.split('/');
+            var displayName = nameParts.filter(function(p) { return p !== 'DEFAULT'; }).join('/');
+            addText(frame, displayName, boldFont, 11, sx + 10, sy + SWATCH_H_COLOR + 8, DARK);
+            addText(frame, ct.value.toUpperCase(), labelFont, 11, sx + 10, sy + SWATCH_H_COLOR + 26, MUTED);
+
+            var contrastText = aa.passAA ? 'AA Pass on ' + aa.bestOn : 'AA Fail (' + aa.ratio + ':1)';
+            var contrastColor = aa.passAA ? { r: 0.13, g: 0.55, b: 0.13 } : { r: 0.85, g: 0.18, b: 0.18 };
+            addText(frame, contrastText, labelFont, 10, sx + 10, sy + SWATCH_H_COLOR + 44, contrastColor);
+        }
+
+        var isSemantic = { 'brand': 1, 'text': 1, 'bg': 1, 'background': 1, 'border': 1, 'feedback': 1 };
+        var CARD_H = SWATCH_H_COLOR + SWATCH_META_H + ITEM_GAP;
 
         for (var gi = 0; gi < sortedGroups.length; gi++) {
           var gName = sortedGroups[gi];
@@ -939,56 +972,55 @@ figma.ui.onmessage = async function(msg) {
           addText(colorFrame, gName.charAt(0).toUpperCase() + gName.slice(1), boldFont, 18, MARGIN, cy, DARK);
           cy += 36;
 
-          for (var ci2 = 0; ci2 < gColors.length; ci2++) {
-            var ct = gColors[ci2];
-            var col = ci2 % colorsPerRow;
-            var row = Math.floor(ci2 / colorsPerRow);
-            var sx = MARGIN + col * (SWATCH_W + SWATCH_GAP);
-            var sy = cy + row * (SWATCH_H_COLOR + SWATCH_META_H + ITEM_GAP);
+          if (isSemantic[gName]) {
+            // ── SEMANTIC LAYOUT: sub-group by 2nd path segment, each on own row ──
+            // e.g. brand/primary/DEFAULT, brand/primary/50 → sub-group "primary"
+            //      feedback/error/DEFAULT, feedback/info/DEFAULT → sub-groups "error", "info"
+            var subGroups = {};
+            var subOrder = [];
+            for (var si = 0; si < gColors.length; si++) {
+              var sp = gColors[si].name.split('/');
+              var subKey = sp.length > 1 ? sp[1] : sp[0];
+              if (!subGroups[subKey]) { subGroups[subKey] = []; subOrder.push(subKey); }
+              subGroups[subKey].push(gColors[si]);
+            }
 
-            // Color fill rectangle (top part of card)
-            var swatch = figma.createRectangle();
-            swatch.resize(SWATCH_W, SWATCH_H_COLOR);
-            swatch.x = sx; swatch.y = sy;
-            var tl = 8, tr = 8, bl = 0, br = 0;
-            swatch.topLeftRadius = tl; swatch.topRightRadius = tr;
-            swatch.bottomLeftRadius = bl; swatch.bottomRightRadius = br;
-            swatch.fills = [{ type: 'SOLID', color: hexToRgb(ct.value) }];
-            colorFrame.appendChild(swatch);
+            for (var ski = 0; ski < subOrder.length; ski++) {
+              var subName = subOrder[ski];
+              var subColors = subGroups[subName];
 
-            // AA badge on swatch
-            var aa = getAAResult(ct.value);
-            var badgeText = aa.passAA ? 'AA ✓  ' + aa.ratio + ':1' : 'AA ✗  ' + aa.ratio + ':1';
-            var badgeColor = aa.bestOn === 'white' ? { r: 1, g: 1, b: 1 } : { r: 0, g: 0, b: 0 };
-            addText(colorFrame, badgeText, labelFont, 10, sx + 8, sy + SWATCH_H_COLOR - 18, badgeColor);
+              // Row label on the left
+              addText(colorFrame, subName, boldFont, 13, MARGIN, cy + 30, MUTED);
 
-            // Metadata area (below swatch)
-            var metaBg = figma.createRectangle();
-            metaBg.resize(SWATCH_W, SWATCH_META_H);
-            metaBg.x = sx; metaBg.y = sy + SWATCH_H_COLOR;
-            metaBg.bottomLeftRadius = 8; metaBg.bottomRightRadius = 8;
-            metaBg.fills = [{ type: 'SOLID', color: { r: 0.97, g: 0.97, b: 0.98 } }];
-            metaBg.strokes = [{ type: 'SOLID', color: { r: 0.9, g: 0.9, b: 0.9 } }];
-            metaBg.strokeWeight = 1;
-            colorFrame.appendChild(metaBg);
+              // Swatches start after label
+              var labelW = 140;
+              for (var sci = 0; sci < subColors.length; sci++) {
+                var scx = MARGIN + labelW + sci * (SWATCH_W + SWATCH_GAP);
+                renderColorCard(colorFrame, subColors[sci], scx, cy);
+              }
 
-            // Token name
-            var nameParts = ct.name.split('/');
-            var displayName = nameParts.filter(function(p) { return p !== 'DEFAULT'; }).join('/');
-            addText(colorFrame, displayName, boldFont, 11, sx + 10, sy + SWATCH_H_COLOR + 8, DARK);
+              cy += CARD_H + 8;
+            }
+          } else {
+            // ── PALETTE LAYOUT: horizontal grid (50-900 ramp) ──
+            for (var ci2 = 0; ci2 < gColors.length; ci2++) {
+              var ct = gColors[ci2];
+              var col = ci2 % colorsPerRow;
+              var row = Math.floor(ci2 / colorsPerRow);
+              var sx = MARGIN + col * (SWATCH_W + SWATCH_GAP);
+              var sy = cy + row * CARD_H;
+              renderColorCard(colorFrame, ct, sx, sy);
+            }
 
-            // Hex value
-            addText(colorFrame, ct.value.toUpperCase(), labelFont, 11, sx + 10, sy + SWATCH_H_COLOR + 26, MUTED);
-
-            // Contrast info
-            var contrastText = aa.passAA ? 'AA Pass on ' + aa.bestOn : 'AA Fail (' + aa.ratio + ':1)';
-            var contrastColor = aa.passAA ? { r: 0.13, g: 0.55, b: 0.13 } : { r: 0.85, g: 0.18, b: 0.18 };
-            addText(colorFrame, contrastText, labelFont, 10, sx + 10, sy + SWATCH_H_COLOR + 44, contrastColor);
+            var gRows = Math.ceil(gColors.length / colorsPerRow);
+            cy += gRows * CARD_H + 16;
           }
 
-          var gRows = Math.ceil(gColors.length / colorsPerRow);
-          cy += gRows * (SWATCH_H_COLOR + SWATCH_META_H + ITEM_GAP) + 16;
+          cy += 8; // gap between groups
         }
+
+        // Resize color frame to actual content
+        colorFrame.resize(FRAME_W, cy + SECTION_PAD);
       }
 
       // ══════════════════════════════════════════════════════════
@@ -1017,13 +1049,8 @@ figma.ui.onmessage = async function(msg) {
       function renderTypoFrame(typoList, frameName) {
         if (typoList.length === 0) return;
 
-        // Estimate height: each row ~ 80-120px depending on font size
-        var estH = SECTION_PAD + 60;
-        for (var i = 0; i < typoList.length; i++) {
-          var fs = parseNumericValue(typoList[i].value.fontSize) || 16;
-          estH += Math.max(Math.min(fs, 56), 24) + 64; // sample + labels + gap
-        }
-        estH += SECTION_PAD;
+        // Use generous initial height — will be resized to actual content
+        var estH = 3000;
 
         var frame = createSectionFrame(frameName, estH);
         var fy = SECTION_PAD;
@@ -1062,16 +1089,20 @@ figma.ui.onmessage = async function(msg) {
           var tierName = tierParts.filter(function(p) { return p !== 'desktop' && p !== 'mobile'; }).join('.');
           addText(frame, tierName, boldFont, 13, COL_NAME, fy + 4, DARK);
 
-          // Sample text in actual font
+          // Sample text in actual font — use fixed width so it wraps, then measure height
           var useBold = (tierName.indexOf('display') > -1 || tierName.indexOf('heading') > -1);
           var sample = figma.createText();
           sample.fontName = useBold ? sampleFontBold : sampleFont;
           sample.fontSize = displaySize;
+          // Set fixed width BEFORE setting characters so text wraps properly
+          sample.textAutoResize = 'HEIGHT';
+          sample.resize(540, displaySize * 2);
           sample.characters = getSampleText(tt.name);
           sample.x = COL_SAMPLE; sample.y = fy;
-          sample.resize(540, sample.height);
-          sample.textAutoResize = 'HEIGHT';
           frame.appendChild(sample);
+
+          // Actual sample height after text rendering
+          var sampleH = sample.height;
 
           // Specs column — stacked chips
           var specY = fy;
@@ -1083,7 +1114,9 @@ figma.ui.onmessage = async function(msg) {
           specY += 18;
           addText(frame, 'Font: ' + fFamily, labelFont, 12, COL_SPECS, specY, BLUE);
 
-          var rowH = Math.max(displaySize + 8, specY - fy + 24);
+          // Row height = max of (sample text height, spec labels height, minimum 40px)
+          var specsH = specY - fy + 24;
+          var rowH = Math.max(sampleH + 12, specsH, 40);
           fy += rowH + 8;
 
           // Row separator
