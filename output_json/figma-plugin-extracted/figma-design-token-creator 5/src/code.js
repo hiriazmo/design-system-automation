@@ -562,14 +562,35 @@ figma.ui.onmessage = async function(msg) {
           var lineHeight = value.lineHeight;
           var fontStyle = getFontStyleFromWeight(fontWeight);
           
-          // Load and set font
+          // Load and set font — cascade: exact match → same family Regular → Inter Regular
+          var fontLoaded = false;
+          // Try 1: exact family + weight style (e.g. "Open Sans" + "SemiBold")
           try {
             await figma.loadFontAsync({ family: fontFamily, style: fontStyle });
             textStyle.fontName = { family: fontFamily, style: fontStyle };
-          } catch (fontError) {
-            console.warn('Font ' + fontFamily + ' ' + fontStyle + ' not available, trying Inter');
-            await figma.loadFontAsync({ family: 'Inter', style: 'Regular' });
-            textStyle.fontName = { family: 'Inter', style: 'Regular' };
+            fontLoaded = true;
+          } catch (e1) {
+            console.warn('Font ' + fontFamily + ' ' + fontStyle + ' not available');
+          }
+          // Try 2: same family + Regular
+          if (!fontLoaded && fontStyle !== 'Regular') {
+            try {
+              await figma.loadFontAsync({ family: fontFamily, style: 'Regular' });
+              textStyle.fontName = { family: fontFamily, style: 'Regular' };
+              fontLoaded = true;
+            } catch (e2) {
+              console.warn('Font ' + fontFamily + ' Regular not available either');
+            }
+          }
+          // Try 3: Inter Regular (always available in Figma)
+          if (!fontLoaded) {
+            try {
+              await figma.loadFontAsync({ family: 'Inter', style: 'Regular' });
+              textStyle.fontName = { family: 'Inter', style: 'Regular' };
+            } catch (e3) {
+              console.warn('Even Inter Regular failed — skipping style');
+              continue;
+            }
           }
           
           textStyle.fontSize = fontSize;
@@ -866,6 +887,9 @@ figma.ui.onmessage = async function(msg) {
       }
 
       // === TYPOGRAPHY SECTION ===
+      // IMPORTANT: Only use already-loaded Inter Regular/Bold for ALL text in the spec.
+      // Never attempt to load custom fonts — they may not exist in the Figma environment
+      // and would crash the entire spec generation. Font details are shown as labels.
       if (tokens.typography.length > 0) {
         var typoTitle = figma.createText();
         typoTitle.characters = 'TYPOGRAPHY';
@@ -886,36 +910,28 @@ figma.ui.onmessage = async function(msg) {
           }
           var fontSize = parseNumericValue(value.fontSize) || 16;
           var fontWeight = value.fontWeight || '400';
-          var fontStyle = getFontStyleFromWeight(fontWeight);
+          var displaySize = Math.min(fontSize, 48); // Cap display size
 
-          // Try to load the font
-          try {
-            await figma.loadFontAsync({ family: fontFamily, style: fontStyle });
-          } catch (e) {
-            fontFamily = 'Inter';
-            fontStyle = 'Regular';
-          }
-
-          // Sample text
+          // Sample text — always use Inter (safe), size shows relative scale
           var sampleText = figma.createText();
+          sampleText.fontName = { family: 'Inter', style: headingStyle };
+          sampleText.fontSize = displaySize;
           sampleText.characters = typoToken.name.split('/').pop() || 'Sample Text';
-          sampleText.fontName = { family: fontFamily, style: fontStyle };
-          sampleText.fontSize = Math.min(fontSize, 48); // Cap at 48 for display
           sampleText.x = xOffset;
           sampleText.y = yOffset;
           specPage.appendChild(sampleText);
 
-          // Specs label
+          // Specs label — show the ACTUAL font specs as readable text
           var specsLabel = figma.createText();
-          specsLabel.characters = fontSize + 'px / ' + fontWeight + ' / ' + fontFamily;
           specsLabel.fontName = { family: 'Inter', style: 'Regular' };
           specsLabel.fontSize = 11;
+          specsLabel.characters = fontFamily + '  ·  ' + fontSize + 'px  ·  wt ' + fontWeight;
           specsLabel.fills = [{ type: 'SOLID', color: { r: 0.5, g: 0.5, b: 0.5 } }];
           specsLabel.x = xOffset + 300;
           specsLabel.y = yOffset + 4;
           specPage.appendChild(specsLabel);
 
-          yOffset += Math.max(fontSize, 24) + itemGap;
+          yOffset += Math.max(displaySize, 24) + itemGap;
         }
 
         yOffset += sectionGap;
