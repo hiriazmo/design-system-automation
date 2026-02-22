@@ -782,8 +782,8 @@ figma.ui.onmessage = async function(msg) {
   }
 
   // ==========================================
-  // VISUAL SPEC GENERATOR
-  // Creates a visual reference page showing all tokens
+  // VISUAL SPEC GENERATOR v2
+  // Creates a professional visual reference page showing all tokens
   // ==========================================
   if (msg.type === 'create-visual-spec') {
     try {
@@ -802,234 +802,438 @@ figma.ui.onmessage = async function(msg) {
       var tokens = normalizeTokens(rawTokens);
       console.log('Normalized tokens - colors:', tokens.colors.length, 'typography:', tokens.typography.length);
 
-      // Use current page instead of creating new page (Figma Starter plan has 3-page limit)
+      // Use current page (Figma Starter plan has 3-page limit)
       var specPage = figma.currentPage;
       specPage.name = '🎨 Design System Spec';
 
-      // Clear existing children on the page so spec starts fresh
+      // Clear existing children
       while (specPage.children.length > 0) {
         specPage.children[0].remove();
       }
 
-      var yOffset = 0;
-      var xOffset = 0;
-      var sectionGap = 80;
-      var itemGap = 16;
+      // ── Layout constants ──
+      var PAGE_PADDING = 60;
+      var SECTION_GAP = 100;
+      var ITEM_GAP = 16;
+      var xOffset = PAGE_PADDING;
+      var yOffset = PAGE_PADDING;
+      var PAGE_WIDTH = 1200;
 
-      // Load Inter font for labels (with fallbacks for environments missing styles)
+      // ── Load fonts ──
+      // 1. Inter Regular/Bold for labels (always available)
       var headingStyle = 'Regular';
-      await figma.loadFontAsync({ family: 'Inter', style: 'Regular' });
+      var labelFont = { family: 'Inter', style: 'Regular' };
+      await figma.loadFontAsync(labelFont);
       try {
         await figma.loadFontAsync({ family: 'Inter', style: 'Bold' });
         headingStyle = 'Bold';
       } catch (e) {
-        console.warn('Inter Bold not available, using Regular for headings');
+        console.warn('Inter Bold not available');
       }
+      var headingFont = { family: 'Inter', style: headingStyle };
 
-      // === COLORS SECTION ===
-      if (tokens.colors.length > 0) {
-        // Section title
-        var colorTitle = figma.createText();
-        colorTitle.characters = 'COLORS';
-        colorTitle.fontName = { family: 'Inter', style: headingStyle };
-        colorTitle.fontSize = 24;
-        colorTitle.x = xOffset;
-        colorTitle.y = yOffset;
-        specPage.appendChild(colorTitle);
-        yOffset += 50;
-
-        var colorX = xOffset;
-        var colorY = yOffset;
-        var swatchSize = 60;
-        var swatchGap = 16;
-        var colsPerRow = 6;
-
-        for (var ci = 0; ci < tokens.colors.length; ci++) {
-          var colorToken = tokens.colors[ci];
-          var col = ci % colsPerRow;
-          var row = Math.floor(ci / colsPerRow);
-
-          // Color swatch
-          var swatch = figma.createRectangle();
-          swatch.resize(swatchSize, swatchSize);
-          swatch.x = colorX + col * (swatchSize + swatchGap);
-          swatch.y = colorY + row * (swatchSize + swatchGap + 30);
-          swatch.cornerRadius = 8;
-
-          var rgb = hexToRgb(colorToken.value);
-          swatch.fills = [{ type: 'SOLID', color: rgb }];
-          swatch.strokes = [{ type: 'SOLID', color: { r: 0.9, g: 0.9, b: 0.9 } }];
-          swatch.strokeWeight = 1;
-          specPage.appendChild(swatch);
-
-          // Color name label
-          var colorLabel = figma.createText();
-          colorLabel.characters = colorToken.name.split('/').pop() || colorToken.name;
-          colorLabel.fontName = { family: 'Inter', style: 'Regular' };
-          colorLabel.fontSize = 10;
-          colorLabel.x = swatch.x;
-          colorLabel.y = swatch.y + swatchSize + 4;
-          specPage.appendChild(colorLabel);
-
-          // Color value label
-          var valueLabel = figma.createText();
-          valueLabel.characters = colorToken.value.toUpperCase();
-          valueLabel.fontName = { family: 'Inter', style: 'Regular' };
-          valueLabel.fontSize = 9;
-          valueLabel.fills = [{ type: 'SOLID', color: { r: 0.5, g: 0.5, b: 0.5 } }];
-          valueLabel.x = swatch.x;
-          valueLabel.y = swatch.y + swatchSize + 16;
-          specPage.appendChild(valueLabel);
+      // 2. Try to load the extracted font for sample text
+      var sampleFontFamily = 'Inter';
+      var sampleFontStyle = 'Regular';
+      var sampleFontBoldStyle = headingStyle;
+      // Find the primary font from typography tokens
+      for (var fi = 0; fi < tokens.typography.length; fi++) {
+        var ff = (tokens.typography[fi].value.fontFamily || '').split(',')[0].trim();
+        if (ff && ff !== 'Inter' && ff !== 'sans-serif') {
+          sampleFontFamily = ff;
+          break;
         }
-
-        var colorRows = Math.ceil(tokens.colors.length / colsPerRow);
-        yOffset = colorY + colorRows * (swatchSize + swatchGap + 30) + sectionGap;
       }
-
-      // === TYPOGRAPHY SECTION ===
-      // IMPORTANT: Only use already-loaded Inter Regular/Bold for ALL text in the spec.
-      // Never attempt to load custom fonts — they may not exist in the Figma environment
-      // and would crash the entire spec generation. Font details are shown as labels.
-      if (tokens.typography.length > 0) {
-        var typoTitle = figma.createText();
-        typoTitle.characters = 'TYPOGRAPHY';
-        typoTitle.fontName = { family: 'Inter', style: headingStyle };
-        typoTitle.fontSize = 24;
-        typoTitle.x = xOffset;
-        typoTitle.y = yOffset;
-        specPage.appendChild(typoTitle);
-        yOffset += 50;
-
-        for (var ti = 0; ti < tokens.typography.length; ti++) {
-          var typoToken = tokens.typography[ti];
-          var value = typoToken.value;
-
-          var fontFamily = value.fontFamily || 'Inter';
-          if (fontFamily.indexOf(',') > -1) {
-            fontFamily = fontFamily.split(',')[0].trim();
+      if (sampleFontFamily !== 'Inter') {
+        try {
+          await figma.loadFontAsync({ family: sampleFontFamily, style: 'Regular' });
+          sampleFontStyle = 'Regular';
+          // Try Bold
+          try {
+            await figma.loadFontAsync({ family: sampleFontFamily, style: 'Bold' });
+            sampleFontBoldStyle = 'Bold';
+          } catch (e2) {
+            sampleFontBoldStyle = 'Regular';
           }
-          var fontSize = parseNumericValue(value.fontSize) || 16;
-          var fontWeight = value.fontWeight || '400';
-          var displaySize = Math.min(fontSize, 48); // Cap display size
-
-          // Sample text — always use Inter (safe), size shows relative scale
-          var sampleText = figma.createText();
-          sampleText.fontName = { family: 'Inter', style: headingStyle };
-          sampleText.fontSize = displaySize;
-          sampleText.characters = typoToken.name.split('/').pop() || 'Sample Text';
-          sampleText.x = xOffset;
-          sampleText.y = yOffset;
-          specPage.appendChild(sampleText);
-
-          // Specs label — show the ACTUAL font specs as readable text
-          var specsLabel = figma.createText();
-          specsLabel.fontName = { family: 'Inter', style: 'Regular' };
-          specsLabel.fontSize = 11;
-          specsLabel.characters = fontFamily + '  ·  ' + fontSize + 'px  ·  wt ' + fontWeight;
-          specsLabel.fills = [{ type: 'SOLID', color: { r: 0.5, g: 0.5, b: 0.5 } }];
-          specsLabel.x = xOffset + 300;
-          specsLabel.y = yOffset + 4;
-          specPage.appendChild(specsLabel);
-
-          yOffset += Math.max(displaySize, 24) + itemGap;
+        } catch (e) {
+          console.warn(sampleFontFamily + ' not available, falling back to Inter');
+          sampleFontFamily = 'Inter';
+          sampleFontStyle = 'Regular';
+          sampleFontBoldStyle = headingStyle;
         }
+      }
+      var sampleFont = { family: sampleFontFamily, style: sampleFontStyle };
+      var sampleFontBold = { family: sampleFontFamily, style: sampleFontBoldStyle };
 
-        yOffset += sectionGap;
+      // ── Helper: add section title ──
+      function addSectionTitle(text) {
+        var title = figma.createText();
+        title.fontName = headingFont;
+        title.fontSize = 28;
+        title.characters = text;
+        title.fills = [{ type: 'SOLID', color: { r: 0.1, g: 0.1, b: 0.1 } }];
+        title.x = xOffset;
+        title.y = yOffset;
+        specPage.appendChild(title);
+        yOffset += 50;
+        // Divider line
+        var line = figma.createRectangle();
+        line.resize(PAGE_WIDTH - PAGE_PADDING * 2, 1);
+        line.x = xOffset;
+        line.y = yOffset;
+        line.fills = [{ type: 'SOLID', color: { r: 0.85, g: 0.85, b: 0.85 } }];
+        specPage.appendChild(line);
+        yOffset += 24;
       }
 
-      // === SPACING SECTION ===
+      // ── Helper: add sub-heading ──
+      function addSubHeading(text) {
+        var sub = figma.createText();
+        sub.fontName = headingFont;
+        sub.fontSize = 16;
+        sub.characters = text;
+        sub.fills = [{ type: 'SOLID', color: { r: 0.35, g: 0.35, b: 0.35 } }];
+        sub.x = xOffset;
+        sub.y = yOffset;
+        specPage.appendChild(sub);
+        yOffset += 32;
+      }
+
+      // ══════════════════════════════════════════
+      // 1. WHITE BACKGROUND
+      // ══════════════════════════════════════════
+      // We'll place it at the end once we know the total height.
+      // For now, track startY.
+      var bgStartY = 0;
+
+      // ── Page title ──
+      var pageTitle = figma.createText();
+      pageTitle.fontName = headingFont;
+      pageTitle.fontSize = 36;
+      pageTitle.characters = 'Design System Specification';
+      pageTitle.fills = [{ type: 'SOLID', color: { r: 0.1, g: 0.1, b: 0.1 } }];
+      pageTitle.x = xOffset;
+      pageTitle.y = yOffset;
+      specPage.appendChild(pageTitle);
+      yOffset += 60;
+
+      // ══════════════════════════════════════════
+      // 2. COLORS — grouped by category
+      // ══════════════════════════════════════════
+      if (tokens.colors.length > 0) {
+        addSectionTitle('COLORS');
+
+        // Group colors by top-level category from name path
+        // e.g. "brand/primary/DEFAULT" → category "brand"
+        //      "blue/50"              → category "blue" (palette)
+        var colorGroups = {};
+        var groupOrder = [];
+        for (var ci = 0; ci < tokens.colors.length; ci++) {
+          var cToken = tokens.colors[ci];
+          var parts = cToken.name.split('/');
+          var category = parts[0] || 'other';
+          if (!colorGroups[category]) {
+            colorGroups[category] = [];
+            groupOrder.push(category);
+          }
+          colorGroups[category].push(cToken);
+        }
+
+        // Semantic categories first, then palette
+        var semanticOrder = ['brand', 'text', 'bg', 'background', 'border', 'feedback'];
+        var sortedGroups = [];
+        for (var so = 0; so < semanticOrder.length; so++) {
+          if (colorGroups[semanticOrder[so]]) {
+            sortedGroups.push(semanticOrder[so]);
+          }
+        }
+        for (var go = 0; go < groupOrder.length; go++) {
+          if (sortedGroups.indexOf(groupOrder[go]) === -1) {
+            sortedGroups.push(groupOrder[go]);
+          }
+        }
+
+        var swatchSize = 56;
+        var swatchGap = 12;
+
+        for (var gi = 0; gi < sortedGroups.length; gi++) {
+          var groupName = sortedGroups[gi];
+          var groupColors = colorGroups[groupName];
+
+          // Category label
+          addSubHeading(groupName.charAt(0).toUpperCase() + groupName.slice(1));
+
+          var colorX = xOffset;
+          for (var ci2 = 0; ci2 < groupColors.length; ci2++) {
+            var ct = groupColors[ci2];
+
+            // Swatch
+            var swatch = figma.createRectangle();
+            swatch.resize(swatchSize, swatchSize);
+            swatch.x = colorX;
+            swatch.y = yOffset;
+            swatch.cornerRadius = 8;
+            var rgb = hexToRgb(ct.value);
+            swatch.fills = [{ type: 'SOLID', color: rgb }];
+            swatch.strokes = [{ type: 'SOLID', color: { r: 0.88, g: 0.88, b: 0.88 } }];
+            swatch.strokeWeight = 1;
+            specPage.appendChild(swatch);
+
+            // Token name (last segment, skip DEFAULT)
+            var nameParts = ct.name.split('/');
+            var displayName = nameParts[nameParts.length - 1];
+            if (displayName === 'DEFAULT') {
+              displayName = nameParts.length > 1 ? nameParts[nameParts.length - 2] : displayName;
+            }
+            var cLabel = figma.createText();
+            cLabel.fontName = labelFont;
+            cLabel.fontSize = 9;
+            cLabel.characters = displayName;
+            cLabel.x = colorX;
+            cLabel.y = yOffset + swatchSize + 4;
+            specPage.appendChild(cLabel);
+
+            // Hex value
+            var hexLabel = figma.createText();
+            hexLabel.fontName = labelFont;
+            hexLabel.fontSize = 8;
+            hexLabel.characters = ct.value.toUpperCase();
+            hexLabel.fills = [{ type: 'SOLID', color: { r: 0.55, g: 0.55, b: 0.55 } }];
+            hexLabel.x = colorX;
+            hexLabel.y = yOffset + swatchSize + 16;
+            specPage.appendChild(hexLabel);
+
+            colorX += swatchSize + swatchGap;
+          }
+
+          yOffset += swatchSize + 36 + ITEM_GAP;
+        }
+
+        yOffset += SECTION_GAP - ITEM_GAP;
+      }
+
+      // ══════════════════════════════════════════
+      // 3. TYPOGRAPHY — Desktop & Mobile side by side
+      // ══════════════════════════════════════════
+      if (tokens.typography.length > 0) {
+        addSectionTitle('TYPOGRAPHY');
+
+        // Separate desktop and mobile tokens
+        var desktopTypo = [];
+        var mobileTypo = [];
+        for (var ti = 0; ti < tokens.typography.length; ti++) {
+          var tToken = tokens.typography[ti];
+          var tName = tToken.name.toLowerCase();
+          if (tName.indexOf('mobile') > -1) {
+            mobileTypo.push(tToken);
+          } else {
+            desktopTypo.push(tToken);
+          }
+        }
+
+        // Pangram sample texts per tier
+        function getSampleText(tokenName) {
+          var n = tokenName.toLowerCase();
+          if (n.indexOf('display') > -1) return 'The quick brown fox jumps over the lazy dog';
+          if (n.indexOf('heading') > -1) return 'The quick brown fox jumps over';
+          if (n.indexOf('body') > -1) return 'The quick brown fox jumps over the lazy dog. Pack my box with five dozen liquor jugs.';
+          if (n.indexOf('caption') > -1) return 'The quick brown fox jumps over the lazy dog';
+          if (n.indexOf('overline') > -1) return 'THE QUICK BROWN FOX';
+          return 'The quick brown fox jumps over the lazy dog';
+        }
+
+        // Get display tier for font weight
+        function getTierFont(tokenName) {
+          var n = tokenName.toLowerCase();
+          if (n.indexOf('display') > -1 || n.indexOf('heading') > -1) return sampleFontBold;
+          return sampleFont;
+        }
+
+        // Render a typography column
+        function renderTypoColumn(typoList, columnX, columnTitle) {
+          var localY = yOffset;
+          // Column title
+          var colTitle = figma.createText();
+          colTitle.fontName = headingFont;
+          colTitle.fontSize = 14;
+          colTitle.characters = columnTitle;
+          colTitle.fills = [{ type: 'SOLID', color: { r: 0.2, g: 0.5, b: 1 } }];
+          colTitle.x = columnX;
+          colTitle.y = localY;
+          specPage.appendChild(colTitle);
+          localY += 30;
+
+          for (var tti = 0; tti < typoList.length; tti++) {
+            var tt = typoList[tti];
+            var val = tt.value;
+            var fFamily = (val.fontFamily || 'Inter').split(',')[0].trim();
+            var fSize = parseNumericValue(val.fontSize) || 16;
+            var fWeight = val.fontWeight || '400';
+            var fLineHeight = val.lineHeight || '1.5';
+            var displaySize = Math.min(fSize, 48);
+
+            // Token name label (e.g. "heading.lg")
+            var tierParts = tt.name.split('/');
+            // Remove 'desktop'/'mobile' from display
+            var tierName = tierParts.filter(function(p) { return p !== 'desktop' && p !== 'mobile'; }).join('/');
+
+            var nameLabel = figma.createText();
+            nameLabel.fontName = labelFont;
+            nameLabel.fontSize = 10;
+            nameLabel.characters = tierName;
+            nameLabel.fills = [{ type: 'SOLID', color: { r: 0.5, g: 0.5, b: 0.5 } }];
+            nameLabel.x = columnX;
+            nameLabel.y = localY;
+            specPage.appendChild(nameLabel);
+            localY += 16;
+
+            // Sample text in actual font
+            var sample = figma.createText();
+            sample.fontName = getTierFont(tt.name);
+            sample.fontSize = displaySize;
+            sample.characters = getSampleText(tt.name);
+            sample.x = columnX;
+            sample.y = localY;
+            // Constrain width so long text wraps
+            sample.resize(480, sample.height);
+            sample.textAutoResize = 'HEIGHT';
+            specPage.appendChild(sample);
+            localY += sample.height + 6;
+
+            // Spec details — font size, weight, line height
+            var specLine = figma.createText();
+            specLine.fontName = labelFont;
+            specLine.fontSize = 10;
+            specLine.characters = fFamily + '  ·  ' + fSize + 'px  ·  wt ' + fWeight + '  ·  LH ' + fLineHeight;
+            specLine.fills = [{ type: 'SOLID', color: { r: 0.6, g: 0.6, b: 0.6 } }];
+            specLine.x = columnX;
+            specLine.y = localY;
+            specPage.appendChild(specLine);
+            localY += 28;
+          }
+          return localY;
+        }
+
+        var colWidth = 520;
+        var desktopEndY = renderTypoColumn(desktopTypo, xOffset, '🖥  Desktop');
+        var mobileEndY = renderTypoColumn(mobileTypo, xOffset + colWidth, '📱  Mobile');
+
+        yOffset = Math.max(desktopEndY, mobileEndY) + SECTION_GAP;
+      }
+
+      // ══════════════════════════════════════════
+      // 4. SPACING — Desktop & Mobile with square blocks
+      // ══════════════════════════════════════════
       if (tokens.spacing.length > 0) {
-        var spacingTitle = figma.createText();
-        spacingTitle.characters = 'SPACING';
-        spacingTitle.fontName = { family: 'Inter', style: headingStyle };
-        spacingTitle.fontSize = 24;
-        spacingTitle.x = xOffset;
-        spacingTitle.y = yOffset;
-        specPage.appendChild(spacingTitle);
-        yOffset += 50;
+        addSectionTitle('SPACING');
 
-        var spacingX = xOffset;
-        for (var si = 0; si < Math.min(tokens.spacing.length, 12); si++) {
-          var spacingToken = tokens.spacing[si];
-          var spacingValue = parseNumericValue(spacingToken.value);
-
-          // Spacing bar
-          var bar = figma.createRectangle();
-          bar.resize(Math.max(spacingValue, 4), 24);
-          bar.x = spacingX;
-          bar.y = yOffset;
-          bar.cornerRadius = 4;
-          bar.fills = [{ type: 'SOLID', color: { r: 0.2, g: 0.6, b: 1 } }];
-          specPage.appendChild(bar);
-
-          // Label
-          var spLabel = figma.createText();
-          spLabel.characters = spacingToken.name.split('/').pop() + ' = ' + spacingToken.value;
-          spLabel.fontName = { family: 'Inter', style: 'Regular' };
-          spLabel.fontSize = 11;
-          spLabel.x = spacingX;
-          spLabel.y = yOffset + 30;
-          specPage.appendChild(spLabel);
-
-          spacingX += Math.max(spacingValue, 40) + 24;
+        // Separate desktop and mobile
+        var desktopSpacing = [];
+        var mobileSpacing = [];
+        for (var spi = 0; spi < tokens.spacing.length; spi++) {
+          var spToken = tokens.spacing[spi];
+          var spName = spToken.name.toLowerCase();
+          if (spName.indexOf('mobile') > -1) {
+            mobileSpacing.push(spToken);
+          } else {
+            desktopSpacing.push(spToken);
+          }
         }
 
-        yOffset += 80 + sectionGap;
+        function renderSpacingColumn(spacingList, columnX, columnTitle) {
+          var localY = yOffset;
+          var colTitle = figma.createText();
+          colTitle.fontName = headingFont;
+          colTitle.fontSize = 14;
+          colTitle.characters = columnTitle;
+          colTitle.fills = [{ type: 'SOLID', color: { r: 0.2, g: 0.5, b: 1 } }];
+          colTitle.x = columnX;
+          colTitle.y = localY;
+          specPage.appendChild(colTitle);
+          localY += 30;
+
+          var spX = columnX;
+          var maxH = 0;
+          for (var ssi = 0; ssi < Math.min(spacingList.length, 10); ssi++) {
+            var sp = spacingList[ssi];
+            var spVal = parseNumericValue(sp.value);
+            var blockSize = Math.max(spVal, 8); // Minimum visible size
+            var displayBlock = Math.min(blockSize, 80); // Cap for display
+
+            // Blue square
+            var sq = figma.createRectangle();
+            sq.resize(displayBlock, displayBlock);
+            sq.x = spX;
+            sq.y = localY;
+            sq.cornerRadius = 4;
+            sq.fills = [{ type: 'SOLID', color: { r: 0.2, g: 0.55, b: 1 } }];
+            specPage.appendChild(sq);
+
+            // Label below
+            var spParts = sp.name.split('/');
+            var spDisplayName = spParts.filter(function(p) { return p !== 'desktop' && p !== 'mobile'; }).join('/');
+            var sqLabel = figma.createText();
+            sqLabel.fontName = labelFont;
+            sqLabel.fontSize = 9;
+            sqLabel.characters = spDisplayName + '\n' + sp.value;
+            sqLabel.textAlignHorizontal = 'CENTER';
+            sqLabel.x = spX;
+            sqLabel.y = localY + displayBlock + 6;
+            specPage.appendChild(sqLabel);
+
+            if (displayBlock > maxH) maxH = displayBlock;
+            spX += displayBlock + 20;
+          }
+          return localY + maxH + 40;
+        }
+
+        var dsEndY = renderSpacingColumn(desktopSpacing, xOffset, '🖥  Desktop');
+        var msEndY = renderSpacingColumn(mobileSpacing, xOffset + colWidth, '📱  Mobile');
+
+        yOffset = Math.max(dsEndY, msEndY) + SECTION_GAP;
       }
 
-      // === BORDER RADIUS SECTION ===
+      // ══════════════════════════════════════════
+      // 5. BORDER RADIUS
+      // ══════════════════════════════════════════
       if (tokens.borderRadius.length > 0) {
-        var radiusTitle = figma.createText();
-        radiusTitle.characters = 'BORDER RADIUS';
-        radiusTitle.fontName = { family: 'Inter', style: headingStyle };
-        radiusTitle.fontSize = 24;
-        radiusTitle.x = xOffset;
-        radiusTitle.y = yOffset;
-        specPage.appendChild(radiusTitle);
-        yOffset += 50;
+        addSectionTitle('BORDER RADIUS');
 
         var radiusX = xOffset;
         for (var ri = 0; ri < tokens.borderRadius.length; ri++) {
           var radiusToken = tokens.borderRadius[ri];
           var radiusValue = parseNumericValue(radiusToken.value);
 
-          // Rounded rectangle
           var rect = figma.createRectangle();
-          rect.resize(50, 50);
+          rect.resize(56, 56);
           rect.x = radiusX;
           rect.y = yOffset;
-          rect.cornerRadius = Math.min(radiusValue, 25);
-          rect.fills = [{ type: 'SOLID', color: { r: 0.95, g: 0.95, b: 0.95 } }];
-          rect.strokes = [{ type: 'SOLID', color: { r: 0.8, g: 0.8, b: 0.8 } }];
+          rect.cornerRadius = Math.min(radiusValue, 28);
+          rect.fills = [{ type: 'SOLID', color: { r: 0.95, g: 0.95, b: 0.97 } }];
+          rect.strokes = [{ type: 'SOLID', color: { r: 0.8, g: 0.8, b: 0.85 } }];
           rect.strokeWeight = 2;
           specPage.appendChild(rect);
 
-          // Label
           var rLabel = figma.createText();
+          rLabel.fontName = labelFont;
+          rLabel.fontSize = 9;
           rLabel.characters = radiusToken.name.split('/').pop() + '\n' + radiusToken.value;
-          rLabel.fontName = { family: 'Inter', style: 'Regular' };
-          rLabel.fontSize = 10;
           rLabel.textAlignHorizontal = 'CENTER';
           rLabel.x = radiusX;
-          rLabel.y = yOffset + 56;
+          rLabel.y = yOffset + 62;
           specPage.appendChild(rLabel);
 
-          radiusX += 70;
+          radiusX += 80;
         }
 
-        yOffset += 100 + sectionGap;
+        yOffset += 110 + SECTION_GAP;
       }
 
-      // === SHADOWS SECTION ===
+      // ══════════════════════════════════════════
+      // 6. SHADOWS
+      // ══════════════════════════════════════════
       if (tokens.shadows.length > 0) {
-        var shadowTitle = figma.createText();
-        shadowTitle.characters = 'SHADOWS';
-        shadowTitle.fontName = { family: 'Inter', style: headingStyle };
-        shadowTitle.fontSize = 24;
-        shadowTitle.x = xOffset;
-        shadowTitle.y = yOffset;
-        specPage.appendChild(shadowTitle);
-        yOffset += 50;
+        addSectionTitle('SHADOWS');
 
         var shadowX = xOffset;
         for (var shi = 0; shi < tokens.shadows.length; shi++) {
@@ -1044,10 +1248,10 @@ figma.ui.onmessage = async function(msg) {
 
           // Shadow card
           var card = figma.createRectangle();
-          card.resize(80, 80);
+          card.resize(90, 90);
           card.x = shadowX;
           card.y = yOffset;
-          card.cornerRadius = 8;
+          card.cornerRadius = 12;
           card.fills = [{ type: 'SOLID', color: { r: 1, g: 1, b: 1 } }];
           card.effects = [{
             type: 'DROP_SHADOW',
@@ -1060,17 +1264,38 @@ figma.ui.onmessage = async function(msg) {
           }];
           specPage.appendChild(card);
 
-          // Label
+          // Name + specs
           var shLabel = figma.createText();
-          shLabel.characters = shadowToken.name.split('/').pop();
-          shLabel.fontName = { family: 'Inter', style: 'Regular' };
-          shLabel.fontSize = 11;
+          shLabel.fontName = labelFont;
+          shLabel.fontSize = 9;
+          shLabel.characters = shadowToken.name.split('/').pop() + '\nblur: ' + blurVal + 'px  y: ' + offsetYVal + 'px';
+          shLabel.fills = [{ type: 'SOLID', color: { r: 0.5, g: 0.5, b: 0.5 } }];
           shLabel.x = shadowX;
-          shLabel.y = yOffset + 90;
+          shLabel.y = yOffset + 100;
           specPage.appendChild(shLabel);
 
-          shadowX += 110;
+          shadowX += 130;
         }
+
+        yOffset += 140 + SECTION_GAP;
+      }
+
+      // ══════════════════════════════════════════
+      // WHITE BACKGROUND — placed behind everything
+      // ══════════════════════════════════════════
+      var bgRect = figma.createRectangle();
+      bgRect.resize(PAGE_WIDTH, yOffset + PAGE_PADDING);
+      bgRect.x = 0;
+      bgRect.y = 0;
+      bgRect.fills = [{ type: 'SOLID', color: { r: 1, g: 1, b: 1 } }];
+      bgRect.locked = true;
+      bgRect.name = 'Background';
+      specPage.appendChild(bgRect);
+
+      // Send background to back (behind all other elements)
+      var children = specPage.children;
+      if (children.length > 1) {
+        specPage.insertChild(0, bgRect);
       }
 
       figma.ui.postMessage({

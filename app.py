@@ -1502,14 +1502,12 @@ async def run_stage2_analysis_v2(
             shadow_count = 0
             if state.desktop_normalized:
                 shadow_count = len(getattr(state.desktop_normalized, 'shadows', {}))
-            tobe_shadow_count = min(shadow_count, 5)  # Export only what was extracted (capped at 5)
-            _SHADOW_LABELS = {1: "md", 2: "sm → lg", 3: "sm → md → lg", 4: "xs → sm → lg → xl", 5: "xs → sm → md → lg → xl"}
-            tobe_label = _SHADOW_LABELS.get(tobe_shadow_count, f"{tobe_shadow_count} levels")
+            tobe_shadow_count = max(shadow_count, 5) if shadow_count > 0 else 0  # Always 5 levels (interpolated)
             cards.append(_render_as_is_to_be(
-                "Shadows", f"{shadow_count} levels",
+                "Shadows", f"{shadow_count} extracted",
                 "Elevation tokens" if shadow_count > 0 else "No shadows found",
                 f"{tobe_shadow_count} levels",
-                tobe_label,
+                "xs → sm → md → lg → xl" + (f" (interpolated from {shadow_count})" if shadow_count < 5 else ""),
                 icon="🌫️"
             ))
             asis_tobe_html = "".join(cards)
@@ -3605,16 +3603,11 @@ def export_tokens_json(convention: str = "semantic"):
             token_count += 1
 
     # =========================================================================
-    # SHADOWS — W3C DTCG format — export ONLY what was actually extracted
+    # SHADOWS — W3C DTCG format — always produce 5 elevation levels (xs→xl)
+    # Interpolates between extracted shadows to fill missing levels.
     # =========================================================================
-    # Name mapping: assign best-fit names based on how many shadows were found
-    _SHADOW_NAMES_BY_COUNT = {
-        1: ["shadow.md"],
-        2: ["shadow.sm", "shadow.lg"],
-        3: ["shadow.sm", "shadow.md", "shadow.lg"],
-        4: ["shadow.xs", "shadow.sm", "shadow.lg", "shadow.xl"],
-        5: ["shadow.xs", "shadow.sm", "shadow.md", "shadow.lg", "shadow.xl"],
-    }
+    TARGET_SHADOW_COUNT = 5
+    shadow_names = ["shadow.xs", "shadow.sm", "shadow.md", "shadow.lg", "shadow.xl"]
 
     if state.desktop_normalized and state.desktop_normalized.shadows:
         sorted_shadows = sorted(
@@ -3634,16 +3627,54 @@ def export_tokens_json(convention: str = "semantic"):
                 "color": p.get("color", "rgba(0,0,0,0.25)"),
             })
 
+        # Interpolation helpers
+        def _lerp(a, b, t):
+            return a + (b - a) * t
+
+        def _lerp_shadow(s1, s2, t):
+            """Interpolate between two shadow dicts at factor t (0.0=s1, 1.0=s2)."""
+            import re
+            interp = {
+                "x": round(_lerp(s1["x"], s2["x"], t), 1),
+                "y": round(_lerp(s1["y"], s2["y"], t), 1),
+                "blur": round(_lerp(s1["blur"], s2["blur"], t), 1),
+                "spread": round(_lerp(s1["spread"], s2["spread"], t), 1),
+            }
+            alpha1, alpha2 = 0.25, 0.25
+            m1 = re.search(r'rgba?\([^)]*,\s*([\d.]+)\)', s1["color"])
+            m2 = re.search(r'rgba?\([^)]*,\s*([\d.]+)\)', s2["color"])
+            if m1: alpha1 = float(m1.group(1))
+            if m2: alpha2 = float(m2.group(1))
+            interp_alpha = round(_lerp(alpha1, alpha2, t), 3)
+            interp["color"] = f"rgba(0, 0, 0, {interp_alpha})"
+            return interp
+
+        final_shadows = []
         n = len(parsed_shadows)
-        # Cap at 5 maximum, take first 5 sorted by blur
-        final_shadows = parsed_shadows[:5]
-        names = _SHADOW_NAMES_BY_COUNT.get(len(final_shadows))
-        if names is None:
-            # Fallback for n > 5: xs, sm, md, lg, xl
-            names = [f"shadow.{i+1}" for i in range(len(final_shadows))]
+        if n >= TARGET_SHADOW_COUNT:
+            final_shadows = parsed_shadows[:TARGET_SHADOW_COUNT]
+        elif n == 1:
+            base = parsed_shadows[0]
+            for i in range(TARGET_SHADOW_COUNT):
+                factor = (i + 1) / 3.0
+                final_shadows.append({
+                    "x": round(base["x"] * factor, 1),
+                    "y": round(max(1, base["y"] * factor), 1),
+                    "blur": round(max(1, base["blur"] * factor), 1),
+                    "spread": round(base["spread"] * factor, 1),
+                    "color": f"rgba(0, 0, 0, {round(0.04 + i * 0.04, 3)})",
+                })
+        elif n >= 2:
+            for i in range(TARGET_SHADOW_COUNT):
+                t = i / (TARGET_SHADOW_COUNT - 1)
+                src_pos = t * (n - 1)
+                lo = int(src_pos)
+                hi = min(lo + 1, n - 1)
+                frac = src_pos - lo
+                final_shadows.append(_lerp_shadow(parsed_shadows[lo], parsed_shadows[hi], frac))
 
         for i, shadow in enumerate(final_shadows):
-            token_name = names[i] if i < len(names) else f"shadow.{i + 1}"
+            token_name = shadow_names[i] if i < len(shadow_names) else f"shadow.{i + 1}"
             dtcg_value = {
                 "color": shadow["color"],
                 "offsetX": f"{shadow['x']}px",
