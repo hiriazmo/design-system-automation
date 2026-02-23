@@ -1,188 +1,252 @@
-# 📸 Image Guide for Episode 6 Article
+# Image Guide for Episode 6 Article (v3.2)
 
-## Required Images (8-10 total)
+## Required Images (10-12 total)
 
 ### 1. Hero Image
 **What:** Screenshot of the Gradio interface showing the full pipeline output
 **Where:** After title, before first section
 **Specs:** 1200x630px (LinkedIn preview size)
-**Content:** Show the Visual Previews section with colors, typography, and NEXUS synthesis visible
+**Content:** Show the Visual Spec page in Figma with colors, typography, and agent synthesis visible
 
 ### 2. Complete Workflow Diagram
-**What:** The 8-step pipeline: Website → Agents → Figma → Compare
+**What:** The 8-step pipeline: Website -> Agents -> Figma -> Compare
 **Where:** After "The Complete Workflow" section
 **Specs:** 1200x800px
 **Content:**
 ```
-🌐 Website URL
-     ↓
-🤖 AI Agents (7-source extraction)
-     ↓
-📄 AS-IS JSON
-     ↓
-🔌 Figma Plugin (Import)
-     ↓
-📋 AS-IS Specimen (Review)
-     ↓
-🧠 Rule Engine + 4 AI Agents (Stage 2)
-     ↓
-☑️ Accept/Reject (Human Decision)
-     ↓
-📄 TO-BE JSON → 🔌 Figma → 📋 TO-BE Specimen
+Website URL
+     |
+7-Source Extraction (Playwright + Firecrawl)
+     |
+Normalizer (radius, shadows, colors)
+     |
+Color Classifier (deterministic)
+     |
+Rule Engine (WCAG, type scale, spacing)
+     |
+DTCG JSON (AS-IS)
+     |
+Figma Plugin -> Variables + Visual Spec
+     |
+4 AI Agents (AURORA, ATLAS, SENTINEL, NEXUS)
+     |
+Accept/Reject -> DTCG JSON (TO-BE)
+     |
+Figma Plugin -> Compare AS-IS vs TO-BE
 ```
 
-### 3. Two-Layer Architecture Diagram
-**What:** Layer 1 (Deterministic, Free) + Layer 2 (4 Named Agents)
+### 3. Three-Layer Architecture Diagram
+**What:** Layer 1 (Extraction) + Layer 2 (Classification + Rules) + Layer 3 (4 Agents)
 **Where:** After "Architecture Overview" section
-**Specs:** 1200x600px
+**Specs:** 1200x700px
 **Content:**
 ```
-┌─────────────────────────────────────────────────┐
-│  LAYER 1: DETERMINISTIC (Free — $0.00)          │
-│  ├─ Crawler + 7-Source Extractor + Normalizer   │
-│  ├─ Semantic Color Analyzer (rule-based)        │
-│  ├─ WCAG Contrast Checker (math)                │
-│  ├─ Type Scale Detection (ratio math)           │
-│  ├─ Spacing Grid Analysis (GCD math)            │
-│  └─ Color Statistics (deduplication)             │
-├─────────────────────────────────────────────────┤
-│  LAYER 2: 4 AI AGENTS (~$0.003)                 │
-│  ├─ AURORA   — Brand Color Analyst   (Qwen 72B) │
-│  ├─ ATLAS    — Benchmark Advisor   (Llama 70B)  │
-│  ├─ SENTINEL — Best Practices Auditor (Qwen 72B)│
-│  └─ NEXUS    — Head Synthesizer    (Llama 70B)  │
-└─────────────────────────────────────────────────┘
++--------------------------------------------------+
+|  LAYER 1: EXTRACTION + NORMALIZATION (Free)       |
+|  +- 7-Source Extractor + Normalizer               |
+|  +- Radius/Shadow/Color normalization             |
++--------------------------------------------------+
+|  LAYER 2: CLASSIFICATION + RULE ENGINE (Free)     |
+|  +- Color Classifier (815 lines, deterministic)   |
+|  +- WCAG + Type Scale + Spacing Grid              |
++--------------------------------------------------+
+|  LAYER 3: 4 AI AGENTS (~$0.003)                   |
+|  +- AURORA -> ATLAS -> SENTINEL -> NEXUS          |
++--------------------------------------------------+
 ```
 
-### 4. Agent Pipeline Flow
-**What:** Show the 4 named agents with their flow: parallel analysis → synthesis
-**Where:** After "Layer 2" section header
+### 4. Naming Authority Chain (NEW - V3 Key Innovation)
+**What:** Diagram showing the V2 chaos vs V3 clean authority
+**Where:** After "The Naming Authority Chain" section
 **Specs:** 1200x500px
 **Content:**
 ```
-   Rule Engine Results
-         │
-    ┌────┼────────────────┐
-    ↓    ↓                ↓
-┌──────┐ ┌──────┐ ┌────────┐
-│AURORA│ │ATLAS │ │SENTINEL│
-│Brand │ │Bench │ │Audit   │
-│Qwen  │ │Llama │ │Qwen    │
-└──┬───┘ └──┬───┘ └───┬────┘
-   └────────┼──────────┘
-            ↓
-      ┌──────────┐
-      │  NEXUS   │
-      │Synthesis │
-      │ Llama 70B│
-      └──────────┘
-            ↓
+V2 (BROKEN):                         V3 (FIXED):
++----------+                         +------------------+
+|Normalizer| -> "blue.light"         |Color Classifier  | -> PRIMARY
++----------+                         |  (deterministic) |
++----------+                         +------------------+
+| Export   | -> "blue.500"                    |
++----------+                         +------------------+
++----------+                         |AURORA (advisory) | -> SECONDARY
+| AURORA   | -> "brand.primary"      |  roles only      |
++----------+                         +------------------+
+                                              |
+    = CHAOS in Figma                 +------------------+
+                                     |Normalizer        | -> FALLBACK
+                                     +------------------+
+
+                                         = CLEAN output
+```
+
+### 5. Agent Pipeline Flow
+**What:** Show the 4 named agents with their flow: parallel analysis -> synthesis
+**Where:** After "Layer 3" section header
+**Specs:** 1200x500px
+**Content:**
+```
+   Rule Engine + Classifier Results
+         |
+    +----+----------------+
+    v    v                v
++------+ +------+ +--------+
+|AURORA| |ATLAS | |SENTINEL|
+|Brand | |Bench | |Audit   |
+|Qwen  | |Llama | |Qwen    |
++--+---+ +--+---+ +---+----+
+   +--------+----------+
+            v
+      +----------+
+      |  NEXUS   |
+      |Synthesis |
+      | Llama 70B|
+      +----------+
+            v
     Final Recommendations
 ```
 
-### 5. 7 Extraction Sources Visual
+### 6. 7 Extraction Sources Visual
 **What:** Show the 7 different methods of extraction
-**Where:** After "Stage 1: Extraction" section
+**Where:** After "Extraction: 7 Sources" section
 **Specs:** 1000x600px
 **Content:**
 ```
-┌─────────────┐  ┌─────────────┐  ┌─────────────┐
-│ 1. Computed │  │ 2. CSS      │  │ 3. Inline   │
-│    Styles   │  │    Variables│  │    Styles   │
-└─────────────┘  └─────────────┘  └─────────────┘
++-------------+  +-------------+  +-------------+
+| 1. Computed |  | 2. CSS      |  | 3. Inline   |
+|    Styles   |  |    Variables|  |    Styles   |
++-------------+  +-------------+  +-------------+
 
-┌─────────────┐  ┌─────────────┐  ┌─────────────┐
-│ 4. SVG      │  │ 5. External │  │ 6. Style    │
-│    Attrs    │  │    CSS Files│  │    Blocks   │
-└─────────────┘  └─────────────┘  └─────────────┘
++-------------+  +-------------+  +-------------+
+| 4. SVG      |  | 5. External |  | 6. Style    |
+|    Attrs    |  |    CSS Files|  |    Blocks   |
++-------------+  +-------------+  +-------------+
 
-┌─────────────────────────────────────────────────┐
-│              7. Firecrawl Deep Parser            │
-└─────────────────────────────────────────────────┘
++-------------------------------------------------+
+|              7. Firecrawl Deep Parser            |
++-------------------------------------------------+
 ```
 
-### 6. Rule Engine Output Screenshot
-**What:** Screenshot of actual rule engine output in the Gradio logs panel
+### 7. Color Classifier Output (NEW)
+**What:** Show the classifier's evidence-based categorization
+**Where:** After "The Color Classifier" section
+**Specs:** 1200x600px
+**Content:**
+```
+[CLASSIFY] #06b2c4 -> BRAND
+  Evidence: background-color on <button> (freq=33)
+
+[CLASSIFY] #373737 -> TEXT
+  Evidence: color on <p> (freq=120)
+
+[CLASSIFY] #ffffff -> BG
+  Evidence: background-color on <body> (freq=1)
+
+[DEDUP] #1a1a1a merged with #1b1b1b (dist=1.7)
+
+Category Caps: brand(3) text(3) bg(3) border(3) feedback(4) palette(rest)
+```
+
+### 8. Rule Engine Output
+**What:** Screenshot of actual rule engine output
 **Where:** After "The Rule Engine" section
 **Specs:** 1200x600px
-**Content:** Show the actual emoji-formatted output:
-- 📐 TYPE SCALE ANALYSIS
-- ♿ ACCESSIBILITY CHECK
-- 📏 SPACING GRID
-- 📊 CONSISTENCY SCORE
+**Content:** Show the emoji-formatted output:
+- TYPE SCALE ANALYSIS (ratio, variance, recommendation)
+- ACCESSIBILITY CHECK (actual pairs, not just vs white)
+- SPACING GRID (GCD, alignment %)
+- CONSISTENCY SCORE
 
-### 7. NEXUS Synthesis Output
-**What:** Screenshot of the final synthesis with scores, top 3 actions, color recommendations
+### 9. NEXUS Synthesis Output
+**What:** Screenshot of the final synthesis with scores and top 3 actions
 **Where:** After "Agent 4: NEXUS" section
 **Specs:** 1200x700px
-**Content:** Show the final output with:
+**Content:** Show final output with:
 - Executive summary
-- Scores dashboard (overall, accessibility, consistency, organization)
+- Scores (overall, accessibility, consistency, organization)
 - Top 3 actions with impact/effort
-- Color recommendations with accept/reject checkboxes
+- Color recommendations with accept/reject
 
-### 8. Benchmark Comparison Table
-**What:** Screenshot of the benchmark comparison showing match percentages
-**Where:** After "Agent 2: ATLAS" section
-**Specs:** 1000x400px
+### 10. DTCG JSON Example (NEW)
+**What:** Code block showing the W3C DTCG format with $extensions
+**Where:** After "W3C DTCG v1 Compliance" section
+**Specs:** 1000x500px
 **Content:** Show:
-- 🥇 Polaris: 87% match
-- 🥈 Material 3: 77% match
-- 🥉 Atlassian: 76% match
+```json
+{
+  "color": {
+    "brand": {
+      "primary": {
+        "$type": "color",
+        "$value": "#005aa3",
+        "$extensions": {
+          "com.design-system-extractor": {
+            "frequency": 47,
+            "confidence": "high"
+          }
+        }
+      }
+    }
+  }
+}
+```
 
-### 9. Before/After Comparison
+### 11. Figma Visual Spec Page (NEW)
+**What:** Screenshot of the auto-generated visual spec in Figma
+**Where:** After "The Custom Figma Plugin" section
+**Specs:** 1200x700px
+**Content:** Show:
+- Typography frame (Desktop + Mobile) with font metadata
+- Color frame organized by semantic role (brand/text/bg/border/feedback)
+- AA compliance badges on each swatch
+- Radius display, Spacing scale, Shadow elevation
+
+### 12. Before/After Comparison
 **What:** Side-by-side showing AS-IS vs TO-BE
 **Where:** After "Comparing AS-IS vs TO-BE" section
 **Specs:** 1200x500px
 **Content:**
 ```
 AS-IS                          TO-BE
-─────                          ─────
-Type: ~1.18 (random)    →     1.25 (Major Third)
-Brand: #06b2c4 (AA: 3.2) →   #048391 (AA: 4.5)
-Spacing: Mixed           →    8px grid
-Colors: 143 unique       →    ~20 semantic
-Score: 52/100            →    78/100
+-----                          -----
+Type: ~1.18 (random)    ->    1.25 (Major Third)
+Brand: #06b2c4 (AA: 3.2) ->  #048391 (AA: 4.5)
+Spacing: Mixed           ->   8px grid
+Colors: 143 unique       ->   ~20 semantic
+Radius: raw CSS          ->   none/sm/md/lg/xl/full
+Shadows: unsorted        ->   xs/sm/md/lg/xl
+Score: 52/100            ->   78/100
 ```
 
-### 10. Cost Comparison Table
-**What:** Visual table comparing V1 vs V2 costs + model assignments
+### 13. V1 vs V2 vs V3 Evolution (NEW)
+**What:** Table showing the version progression
 **Where:** After "Cost & Model Strategy" section
 **Specs:** 1000x400px
 **Content:**
 ```
-Agent       Model        Cost
-────────────────────────────
-Rule Engine  None         $0.00
-AURORA       Qwen 72B     ~Free (HF PRO)
-ATLAS        Llama 70B    ~Free (HF PRO)
-SENTINEL     Qwen 72B     ~Free (HF PRO)
-NEXUS        Llama 70B    ~$0.001
-─────────────────────────────
-TOTAL                     ~$0.003
+Version    Cost       Naming         LLM Role        Output
+-------    -------    ----------     ----------      --------
+V1         $0.50      LLM decides    Everything      Unreliable
+V2         $0.003     3 systems      Split w/ rules  Naming chaos
+V3         $0.003     1 authority    Advisory only   Clean DTCG
 ```
-
-### 11. Figma Specimen (If Available)
-**What:** Screenshot of the Figma specimen page after JSON import
-**Where:** After "The Figma Bridge" section
-**Specs:** 1200x700px
-**Content:** Show Typography + Semantic Colors + Spacing display
 
 ---
 
 ## Image Creation Tools
 
 **Recommended:**
-1. **Figma** — Architecture diagrams, pipeline flows, tech stack
-2. **Screenshot tool** — Gradio interface captures (use dark mode)
-3. **Excalidraw** — Quick hand-drawn style diagrams (for the architecture)
+1. **Figma** - Architecture diagrams, pipeline flows, tech stack
+2. **Screenshot tool** - Gradio interface captures (use dark mode)
+3. **Excalidraw** - Quick hand-drawn style diagrams
 
 **Tips:**
 - Use dark background screenshots (Gradio dark mode)
 - Add subtle drop shadows to screenshots
-- Keep consistent color scheme (blues + cyans match brand color #06b2c4)
+- Keep consistent color scheme (blues match brand)
 - Use the agent names (AURORA, ATLAS, SENTINEL, NEXUS) in diagram labels
-- Color-code: Layer 1 = green (free), Layer 2 = blue (AI)
+- Color-code: Layer 1 = green (free), Layer 2 = blue (rules), Layer 3 = purple (AI)
+- NEW: Include W3C DTCG logo/badge where format is mentioned
+- NEW: Show the naming authority chain prominently - it's the V3 key story
 
 ---
 
@@ -191,15 +255,17 @@ TOTAL                     ~$0.003
 ```
 episode6-hero-dashboard.png
 episode6-workflow-8steps.png
-episode6-architecture-2layers.png
+episode6-architecture-3layers.png
+episode6-naming-authority.png
 episode6-agent-pipeline.png
 episode6-extraction-7sources.png
+episode6-color-classifier.png
 episode6-rule-engine-output.png
 episode6-nexus-synthesis.png
-episode6-benchmark-comparison.png
+episode6-dtcg-json.png
+episode6-figma-visual-spec.png
 episode6-before-after.png
-episode6-cost-table.png
-episode6-figma-specimen.png
+episode6-v1-v2-v3-evolution.png
 ```
 
 ---
@@ -215,3 +281,6 @@ Before taking screenshots:
 - [ ] Set consistent window size (1440px wide)
 - [ ] Run a real analysis so outputs are populated
 - [ ] Ensure agent names (AURORA, ATLAS, etc.) are visible in logs
+- [ ] Ensure color classifier evidence logs are visible
+- [ ] Capture the Figma visual spec page with AA badges
+- [ ] Show DTCG format in JSON export preview

@@ -364,7 +364,7 @@ For each area: THINK → ACT → OBSERVE → VERIFY.
   "palette_strategy": "complementary|analogous|triadic|monochromatic|random",
   "cohesion_score": N,
   "cohesion_notes": "...",
-  "naming_map": {},
+  "naming_map": {},  // Optional: ONLY semantic role suggestions (brand.primary, text.secondary, etc.)
   "typography_notes": "Heading: Inter 700, Body: Inter 400. Clean hierarchy.",
   "spacing_notes": "8px grid, 92% aligned.",
   "radius_notes": "Rounded style: 4px inputs, 8px cards.",
@@ -391,7 +391,7 @@ Return ONLY valid JSON."""
 ## SHADOWS
 {shadow_data}
 
-Use ReAct for each area. Name EVERY color in naming_map."""
+Use ReAct for each area. If you see clear semantic roles (brand primary, text color, etc.), suggest them in naming_map. Otherwise leave naming_map empty — the rule-based classifier handles naming."""
 
     def __init__(self, hf_client):
         self.hf_client = hf_client
