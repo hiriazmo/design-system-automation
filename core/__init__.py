@@ -1,5 +1,5 @@
 """
-Core utilities for Design System Extractor v2.
+Core utilities for Design System Automation.
 """
 
 from core.token_schema import (

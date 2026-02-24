@@ -1,5 +1,5 @@
 ---
-title: Design System Extractor v3
+title: Design System Automation v3
 emoji: 🎨
 colorFrom: purple
 colorTo: blue
@@ -8,7 +8,7 @@ pinned: false
 license: mit
 ---
 
-# Design System Extractor v3
+# Design System Automation v3
 
 > 🎨 A semi-automated, human-in-the-loop agentic system that reverse-engineers design systems from live websites.
 
@@ -65,7 +65,7 @@ This is **not a magic button** — it's a design-aware co-pilot.
 ```bash
 # Clone the repository
 git clone <repo-url>
-cd design-system-extractor
+cd design-system-automation
 
 # Create virtual environment
 python -m venv venv
@@ -118,7 +118,7 @@ Open `http://localhost:7860` in your browser.
 ## 📁 Project Structure
 
 ```
-design-system-extractor/
+design-system-automation/
 ├── app.py                          # Main Gradio application
 ├── requirements.txt
 ├── README.md

@@ -16,3 +16,17 @@ storage/cache/
 storage/exports/
 __MACOSX/
 .claude/
+
+# Internal project docs (not for public repos)
+CLAUDE.md
+PROJECT_CONTEXT.md
+ARCHITECTURE.md
+PLAN_W3C_DTCG_UPDATE.md
+PART2_COMPONENT_GENERATION.md
+docs/CONTEXT.md
+docs/FIGMA_SPECIMEN_IDEAS.md
+content/
+
+# Data files (sample outputs, caches)
+storage/benchmark_cache.json
+output_json/*.json

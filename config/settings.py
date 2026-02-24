@@ -1,6 +1,6 @@
 """
 Application Settings
-Design System Extractor v2
+Design System Automation
 
 Loads configuration from environment variables and YAML files.
 """

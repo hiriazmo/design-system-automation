@@ -1,5 +1,5 @@
 """
-Agents for Design System Extractor v2.
+Agents for Design System Automation.
 
 This package contains:
 - Stage 1 Agents: Crawler, Extractor, Normalizer, Semantic Analyzer

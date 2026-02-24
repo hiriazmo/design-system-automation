@@ -179,7 +179,7 @@ Category Caps: brand(3) text(3) bg(3) border(3) feedback(4) palette(rest)
         "$type": "color",
         "$value": "#005aa3",
         "$extensions": {
-          "com.design-system-extractor": {
+          "com.design-system-automation": {
             "frequency": 47,
             "confidence": "high"
           }

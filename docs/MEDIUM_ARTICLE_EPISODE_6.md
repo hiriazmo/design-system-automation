@@ -487,7 +487,7 @@ V3's export follows the W3C Design Tokens Community Group specification (stable 
         "$value": "#005aa3",
         "$description": "[classifier] brand: primary_action",
         "$extensions": {
-          "com.design-system-extractor": {
+          "com.design-system-automation": {
             "frequency": 47,
             "confidence": "high",
             "category": "brand",

@@ -1,4 +1,4 @@
-# LinkedIn Post - Episode 6: Design System Extractor v3.2
+# LinkedIn Post - Episode 6: Design System Automation v3.2
 
 ## Main Post (Copy-Paste Ready)
 

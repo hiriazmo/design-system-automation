@@ -1,6 +1,6 @@
 """
 Agent 2: Token Normalizer & Structurer
-Design System Extractor v3
+Design System Automation v3
 
 Persona: Design System Librarian
 
