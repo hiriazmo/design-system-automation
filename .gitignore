@@ -30,3 +30,4 @@ content/
 # Data files (sample outputs, caches)
 storage/benchmark_cache.json
 output_json/*.json
+output_json/figma-plugin-extracted/

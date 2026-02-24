@@ -1,5 +1,5 @@
 {
-  "name": "Design Token Creator",
+  "name": "Design System Automation — Token Importer",
   "id": "1234567890",
   "api": "1.0.0",
   "main": "src/code.js",
