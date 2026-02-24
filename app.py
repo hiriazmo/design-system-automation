@@ -3819,7 +3819,7 @@ def _render_benchmark_cards(benchmark_comparisons, benchmark_advice) -> str:
         changes_html = f"""
         <div style="margin-top: 16px; padding: 14px 18px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px;">
             <div style="font-weight: 600; font-size: 14px; margin-bottom: 8px; color: #1e293b;">🔧 To Align with Top Match</div>
-            <ul style="margin: 0; padding-left: 20px; font-size: 13px; color: #475569; line-height: 1.8;">
+            <ul style="margin: 0; padding-left: 20px; font-size: 13px; color: #1a1a1a; line-height: 1.8;">
                 {''.join(items)}
             </ul>
         </div>"""
