@@ -1,4 +1,4 @@
-# Design System Extractor v2 — Complete Architecture
+# Design System Automation — Complete Architecture
 
 ## Overview
 

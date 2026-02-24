@@ -2,7 +2,7 @@
 
 ## Overview
 
-Update both the **Design System Extractor export** and the **Figma plugin** to use the official **W3C DTCG (Design Tokens Community Group)** format - the industry standard as of October 2025.
+Update both the **Design System Automation export** and the **Figma plugin** to use the official **W3C DTCG (Design Tokens Community Group)** format - the industry standard as of October 2025.
 
 ---
 

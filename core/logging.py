@@ -1,5 +1,5 @@
 """
-Structured Logging for Design System Extractor
+Structured Logging for Design System Automation
 ================================================
 
 Provides consistent logging across the application using loguru.

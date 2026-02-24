@@ -1,6 +1,6 @@
 """
 Agent 1B: Firecrawl CSS Extractor
-Design System Extractor v2
+Design System Automation
 
 Persona: CSS Deep Diver
 

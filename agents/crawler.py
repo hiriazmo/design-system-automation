@@ -1,6 +1,6 @@
 """
 Agent 1: Website Crawler
-Design System Extractor v2
+Design System Automation
 
 Persona: Meticulous Design Archaeologist
 

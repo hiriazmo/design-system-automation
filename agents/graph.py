@@ -1,6 +1,6 @@
 """
 LangGraph Workflow Orchestration
-Design System Extractor v2
+Design System Automation
 
 Defines the main workflow graph with agents, checkpoints, and transitions.
 """

@@ -1,6 +1,6 @@
 """
 Agent 1C: Semantic Color Analyzer
-Design System Extractor v2
+Design System Automation
 
 ⚠️  DEPRECATED in v3.2 — Superseded by:
   - core/color_classifier.py (rule-based, primary naming authority)

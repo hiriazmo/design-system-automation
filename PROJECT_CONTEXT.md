@@ -1,4 +1,4 @@
-# Design System Extractor v2 — Project Context
+# Design System Automation — Project Context
 
 ## Architecture Overview
 

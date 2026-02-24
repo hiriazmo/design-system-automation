@@ -1,6 +1,6 @@
 """
 LangGraph State Definitions
-Design System Extractor v2
+Design System Automation
 
 Defines the state schema and type hints for LangGraph workflow.
 """

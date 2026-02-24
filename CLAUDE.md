@@ -1,4 +1,4 @@
-# Design System Extractor v3.2 — Project Context
+# Design System Automation v3.2 — Project Context
 
 ## Overview
 
@@ -61,7 +61,7 @@ The three-naming-system conflict from v2/v3.0 is resolved:
 - `$type` values: `color`, `dimension`, `typography`, `shadow`
 - `$value` for all token values
 - `$description` for human-readable descriptions
-- `$extensions` with namespaced metadata: `com.design-system-extractor`
+- `$extensions` with namespaced metadata: `com.design-system-automation`
   - Colors: `{frequency, confidence, category, evidence}`
   - Radius: `{frequency, fitsBase4, fitsBase8}`
   - Shadows: `{frequency, rawCSS, blurPx}`
@@ -1123,18 +1123,34 @@ PHASE 4: EXTRACTION IMPROVEMENTS (NOT STARTED)
   4c. ❌ Rule engine: shadow elevation analysis
 ```
 
-### PHASE 5: COMPONENT GENERATION (FUTURE — NOT STARTED)
+### PHASE 5: COMPONENT GENERATION (NEXT — RESEARCH COMPLETE)
 
-Based on strategic research (Feb 2026), the next major feature is automated component generation in Figma:
+**Full context**: See `PART2_COMPONENT_GENERATION.md` for detailed research, API checks, and architecture.
+
+**Research finding (Feb 2026)**: 30+ tools evaluated. No production tool takes DTCG JSON -> Figma Components. This is a genuine market gap.
+
+**Decision**: Custom Figma Plugin (Option A) — extend existing `code.js` with component generation.
 
 ```
 PHASE 5: FIGMA COMPONENT GENERATION
   5a. Component Definition Schema (JSON defining anatomy + token bindings + variants)
-  5b. Token-to-Component binding engine
-  5c. Figma Plugin: createComponent() + combineAsVariants() + setBoundVariable()
-  5d. MVP Components: Button (60 variants), TextInput (8), Card (2), Toast (4), Checkbox+Radio (12)
-  5e. Variable Collections: Primitives, Semantic, Spacing, Radius, Typography
+  5b. Token-to-Component binding engine (resolveTokenValue, bindTokenToVariable)
+  5c. Variable Collection builder (primitives, semantic, spacing, radius, shadow, typography)
+  5d. MVP Components:
+      - Button: 4 variants x 3 sizes x 5 states = 60 variants (2-3 days)
+      - TextInput: 4 states x 2 sizes = 8 variants (1-2 days)
+      - Card: 2 configurations (1 day)
+      - Toast: 4 types success/error/warn/info (1 day)
+      - Checkbox+Radio: ~12 variants (1-2 days)
+  5e. Post-MVP: Toggle (4), Select (multi-state), Modal (3 sizes), Table (template)
 
+  Estimated: ~1400 lines new plugin code, 8-12 days total
+```
+
+**Figma Plugin API confirmed**: createComponent(), combineAsVariants(), setBoundVariable(),
+setBoundVariableForPaint(), addComponentProperty(), setReactionsAsync() — ALL supported.
+
+```
 PHASE 6: ECOSYSTEM INTEGRATION
   6a. Style Dictionary v4 compatible output (50+ platform formats for free)
   6b. Tokens Studio compatible JSON import
@@ -1151,6 +1167,8 @@ PHASE 7: MCP INTEGRATION
 
 **"Lighthouse for Design Systems"** — We are NOT a token management platform (Tokens Studio), NOT a documentation platform (Zeroheight), NOT an extraction tool (Dembrandt). We are the **automated audit + bootstrap tool** that sits upstream of all of those.
 
+**With Phase 5**: We become the ONLY tool that goes from URL -> complete Figma design system WITH components. Fully automated. Nobody else does this end-to-end.
+
 **Unique differentiators no competitor has:**
 - Type scale ratio detection + standard scale matching
 - Spacing grid detection (GCD-based, base-8 alignment scoring)
@@ -1158,12 +1176,15 @@ PHASE 7: MCP INTEGRATION
 - Holistic design system quality score (0-100)
 - Visual spec page auto-generated in Figma
 - Benchmark comparison against established design systems
+- (Phase 5) Automated component generation from extracted tokens
 
 **Key competitors to watch:**
-- Dembrandt (1,300★) — does extraction better, but no analysis
-- Tokens Studio (264K users) — does Figma management better, but no extraction
+- Dembrandt (1,300 stars) — does extraction better, but no analysis, no components
+- Tokens Studio (1M+ installs) — manages tokens, no extraction, no component generation
 - Knapsack ($10M funding) — building ingestion engine, biggest strategic threat
-- html.to.design — captures layouts but not tokens/variables
+- Figr Identity — generates components but from brand config, not extracted tokens
+- html.to.design — captures layouts but not tokens/variables/components
+- story.to.design — Storybook->Figma components, but needs full code pipeline
 
 ---
 

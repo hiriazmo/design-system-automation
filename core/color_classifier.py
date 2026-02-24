@@ -1,6 +1,6 @@
 """
 Rule-Based Color Classifier
-Design System Extractor v3.1
+Design System Automation v3.1
 
 100% deterministic color classification and naming.
 NO LLM involved. Every decision logged with evidence.

@@ -1,5 +1,5 @@
 """
-Design System Extractor v2 — Main Application
+Design System Automation — Main Application
 ==============================================
 
 Flow:
@@ -2969,7 +2969,7 @@ def _to_dtcg_token(value, token_type: str, description: str = None,
     elif description:
         token["$description"] = description
     if extensions:
-        token["$extensions"] = {"com.design-system-extractor": extensions}
+        token["$extensions"] = {"com.design-system-automation": extensions}
     return token
 
 
@@ -4473,7 +4473,7 @@ def create_ui():
     """
     
     with gr.Blocks(
-        title="Design System Extractor v3",
+        title="Design System Automation v3",
         theme=corporate_theme,
         css=custom_css
     ) as app:
@@ -4481,7 +4481,7 @@ def create_ui():
         # Header with branding
         gr.HTML("""
         <div class="app-header">
-            <h1>🎨 Design System Extractor</h1>
+            <h1>🎨 Design System Automation</h1>
             <p>Reverse-engineer design systems from live websites • AI-powered analysis • Figma-ready export</p>
         </div>
         """)
@@ -5077,7 +5077,7 @@ def create_ui():
         gr.Markdown("""
         ---
         <div style="text-align: center; color: #94a3b8; font-size: 12px; padding: 12px 0;">
-        <strong>Design System Extractor v3</strong> · Playwright + Firecrawl + HuggingFace<br/>
+        <strong>Design System Automation v3</strong> · Playwright + Firecrawl + HuggingFace<br/>
         Rule Engine (FREE) + ReAct LLM Agents (AURORA · ATLAS · SENTINEL · NEXUS)
         </div>
         """)

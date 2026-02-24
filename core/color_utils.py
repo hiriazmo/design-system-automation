@@ -1,6 +1,6 @@
 """
 Color Utilities
-Design System Extractor v2
+Design System Automation
 
 Functions for color analysis, contrast calculation, and ramp generation.
 """

@@ -1,6 +1,6 @@
 """
 HuggingFace Inference Client
-Design System Extractor v2
+Design System Automation
 
 Handles all LLM inference calls using HuggingFace Inference API.
 Supports diverse models from different providers for specialized tasks.

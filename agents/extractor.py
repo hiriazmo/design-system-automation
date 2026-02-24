@@ -1,6 +1,6 @@
 """
 Agent 1: Token Extractor
-Design System Extractor v2
+Design System Automation
 
 Persona: Meticulous Design Archaeologist
 

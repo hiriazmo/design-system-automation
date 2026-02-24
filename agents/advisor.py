@@ -1,6 +1,6 @@
 """
 Agent 3: Design System Best Practices Advisor
-Design System Extractor v2
+Design System Automation
 
 Persona: Senior Staff Design Systems Architect
 

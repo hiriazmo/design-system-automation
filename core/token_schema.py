@@ -1,6 +1,6 @@
 """
 Token Schema Definitions
-Design System Extractor v3
+Design System Automation v3
 
 Pydantic models for all token types and extraction results.
 These are the core data structures used throughout the application.
@@ -401,7 +401,7 @@ class TokenMetadata(BaseModel):
     extracted_at: datetime
     version: str
     viewport: Viewport
-    generator: str = "Design System Extractor v3"
+    generator: str = "Design System Automation v3"
 
 
 class FinalTokens(BaseModel):
