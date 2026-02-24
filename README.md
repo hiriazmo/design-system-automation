@@ -1,5 +1,5 @@
 ---
-title: Design System Automation v3
+title: Design System Automation
 emoji: 🎨
 colorFrom: purple
 colorTo: blue
@@ -8,226 +8,188 @@ pinned: false
 license: mit
 ---
 
-# Design System Automation v3
+# Design System Automation
 
-> 🎨 A semi-automated, human-in-the-loop agentic system that reverse-engineers design systems from live websites.
+> Extract, analyze, and improve any website's design system — then drop it into Figma as a visual spec. In 15 minutes, not 5 days.
 
-## 🎯 What It Does
+![Version](https://img.shields.io/badge/version-3.2-blue) ![Tests](https://img.shields.io/badge/tests-148%20passing-brightgreen) ![Cost](https://img.shields.io/badge/cost-%240.003%2Frun-orange) ![License](https://img.shields.io/badge/license-MIT-green)
 
-When you have a website but no design system documentation (common when the original Sketch/Figma files are lost), this tool helps you:
+## What It Does
 
-1. **Crawl** your website to discover pages
-2. **Extract** design tokens (colors, typography, spacing, shadows)
-3. **Review** and validate extracted tokens with visual previews
-4. **Upgrade** your system with modern best practices (optional)
-5. **Export** production-ready JSON tokens for Figma/code
+Point it at any live website. The system:
 
-## 🧠 Philosophy
+1. **Extracts** every design token (colors, typography, spacing, shadows, radius) from 8 sources
+2. **Classifies** colors deterministically using CSS evidence (815 lines, no AI)
+3. **Audits** accessibility (WCAG AA/AAA), type scale consistency, spacing grid alignment
+4. **Analyzes** with 4 specialized AI agents — brand identification, industry benchmarking, best practices, synthesis
+5. **Exports** W3C DTCG-compliant JSON
+6. **Generates** a full Figma visual spec via custom plugin
 
-This is **not a magic button** — it's a design-aware co-pilot.
+**Cost:** ~$0.003 per analysis. The free rule-based layers do 90% of the work.
 
-- **Agents propose → Humans decide**
-- **Every action is visible, reversible, and previewed**
-- **No irreversible automation**
-
-## 🏗️ Architecture
+## Architecture: Three Layers
 
 ```
-┌──────────────────────────────────────────────────────────────┐
-│                        TECH STACK                            │
-├──────────────────────────────────────────────────────────────┤
-│  Frontend:       Gradio (interactive UI with live preview)   │
-│  Orchestration:  LangGraph (agent workflow management)       │
-│  Models:         Claude API (reasoning) + Rule-based         │
-│  Browser:        Playwright (crawling & extraction)          │
-│  Hosting:        Hugging Face Spaces                         │
-└──────────────────────────────────────────────────────────────┘
+Layer 1 — Extraction + Normalization (Free, ~90s)
+  Playwright visits site at 2 viewports, extracts from 8 CSS sources
+  Normalizer: dedup colors, parse radius/shadows, name with numeric shades
+
+Layer 2 — Classification + Rule Engine (Free, <1s)
+  Color Classifier: CSS evidence -> category -> token name (deterministic)
+  Rule Engine: WCAG contrast, type scale ratio, spacing grid, color stats
+
+Layer 3 — 4 AI Agents (~$0.003)
+  AURORA:   Brand color advisor        (Qwen 72B)
+  ATLAS:    Industry benchmark advisor  (Llama 3.3 70B)
+  SENTINEL: Best practices auditor      (Qwen 72B)
+  NEXUS:    Head synthesizer            (Llama 3.3 70B)
 ```
 
-### Agent Personas
+AI agents are **advisory only** — a strict naming authority chain ensures deterministic, reproducible output:
+1. Color Classifier (primary) → 2. AURORA LLM (secondary, semantic roles only) → 3. Normalizer (fallback)
 
-| Agent | Persona | Job |
-|-------|---------|-----|
-| **Agent 1** | Design Archaeologist | Discover pages, extract raw tokens |
-| **Agent 2** | Design System Librarian | Normalize, dedupe, structure tokens |
-| **Agent 3** | Senior DS Architect | Recommend upgrades (type scales, spacing, a11y) |
-| **Agent 4** | Automation Engineer | Generate final JSON for Figma/code |
+## Quick Start
 
-## 🚀 Quick Start
-
-### Prerequisites
-
-- Python 3.11+
-- Node.js (for some dependencies)
-
-### Installation
+### Run the App
 
 ```bash
-# Clone the repository
-git clone <repo-url>
+git clone https://github.com/hiriazmo/design-system-automation.git
 cd design-system-automation
 
-# Create virtual environment
 python -m venv venv
-source venv/bin/activate  # or `venv\Scripts\activate` on Windows
+source venv/bin/activate
 
-# Install dependencies
 pip install -r requirements.txt
-
-# Install Playwright browsers
 playwright install chromium
 
-# Copy environment file
 cp config/.env.example config/.env
-# Edit .env and add your ANTHROPIC_API_KEY
-```
+# Add your HF_TOKEN in .env
 
-### Running
-
-```bash
 python app.py
 ```
 
-Open `http://localhost:7860` in your browser.
+Open `http://localhost:7860`
 
-## 📖 Usage Guide
+### Or Use the Hosted Version
 
-### Stage 1: Discovery
+**[Live Demo on HuggingFace Spaces](https://huggingface.co/spaces/riazmo/Design-System-Automation)**
 
-1. Enter your website URL (e.g., `https://example.com`)
-2. Click "Discover Pages"
-3. Review discovered pages and select which to extract from
-4. Ensure you have a mix of page types (homepage, listing, detail, etc.)
+### Import to Figma
 
-### Stage 2: Extraction
+1. Extract tokens from any website using the app
+2. Download the DTCG JSON
+3. Load the [Figma plugin](./figma-plugin/) into Figma
+4. Upload JSON → get Variables, Styles, and a Visual Spec page
 
-1. Choose viewport (Desktop 1440px or Mobile 375px)
-2. Click "Extract Tokens"
-3. Review extracted:
-   - **Colors**: With frequency, context, and AA compliance
-   - **Typography**: Font families, sizes, weights
-   - **Spacing**: Values with 8px grid fit indicators
-4. Accept or reject individual tokens
+See the [Figma Plugin README](./figma-plugin/README.md) for setup instructions.
 
-### Stage 3: Export
-
-1. Review final token set
-2. Export as JSON
-3. Import into Figma via Tokens Studio or your plugin
-
-## 📁 Project Structure
+## The Workflow
 
 ```
-design-system-automation/
-├── app.py                          # Main Gradio application
-├── requirements.txt
-├── README.md
-│
-├── config/
-│   ├── .env.example                # Environment template
-│   ├── agents.yaml                 # Agent personas & settings
-│   └── settings.py                 # Configuration loader
-│
-├── agents/
-│   ├── state.py                    # LangGraph state definitions
-│   ├── graph.py                    # Workflow orchestration
-│   ├── crawler.py                  # Agent 1: Page discovery
-│   ├── extractor.py                # Agent 1: Token extraction
-│   ├── normalizer.py               # Agent 2: Normalization
-│   ├── advisor.py                  # Agent 3: Best practices
-│   └── generator.py                # Agent 4: JSON generation
-│
-├── core/
-│   ├── token_schema.py             # Pydantic data models
-│   └── color_utils.py              # Color analysis utilities
-│
-├── ui/
-│   └── (Gradio components)
-│
-└── docs/
-    └── CONTEXT.md                  # Context file for AI assistance
+Enter URL → Extract AS-IS → Download JSON → Import to Figma (Visual Spec)
+                                                      ↓
+                                              Review AS-IS spec
+                                                      ↓
+                                    Run AI Analysis → Accept/Reject suggestions
+                                                      ↓
+                                    Export TO-BE JSON → Import to Figma
+                                                      ↓
+                                        Compare AS-IS vs TO-BE side by side
 ```
 
-## 🔧 Configuration
-
-### Environment Variables
-
-```env
-# Required
-ANTHROPIC_API_KEY=your_key_here
-
-# Optional
-DEBUG=false
-LOG_LEVEL=INFO
-BROWSER_HEADLESS=true
-```
-
-### Agent Configuration
-
-Agent personas and behavior are defined in `config/agents.yaml`. This includes:
-
-- Extraction targets (colors, typography, spacing)
-- Naming conventions
-- Confidence thresholds
-- Upgrade options
-
-## 🛠️ Development
-
-### Running Tests
-
-```bash
-pytest tests/
-```
-
-### Adding New Features
-
-1. Update token schema in `core/token_schema.py`
-2. Add agent logic in `agents/`
-3. Update UI in `app.py`
-4. Update `docs/CONTEXT.md` for AI assistance
-
-## 📦 Output Format
-
-Tokens are exported in a platform-agnostic JSON format:
+## Output Format (W3C DTCG v1)
 
 ```json
 {
-  "metadata": {
-    "source_url": "https://example.com",
-    "version": "v1-recovered",
-    "viewport": "desktop"
-  },
-  "colors": {
-    "primary-500": {
-      "value": "#007bff",
-      "source": "detected",
-      "contrast_white": 4.5
+  "color": {
+    "brand": {
+      "primary": {
+        "$type": "color",
+        "$value": "#005aa3",
+        "$description": "[classifier] brand: primary_action",
+        "$extensions": {
+          "com.design-system-automation": {
+            "frequency": 47,
+            "confidence": "high",
+            "category": "brand"
+          }
+        }
+      }
     }
   },
-  "typography": {
-    "heading-lg": {
-      "fontFamily": "Inter",
-      "fontSize": "24px",
-      "fontWeight": 700
-    }
+  "radius": {
+    "md": { "$type": "dimension", "$value": "8px" }
   },
-  "spacing": {
-    "md": {
-      "value": "16px",
-      "source": "detected"
+  "shadow": {
+    "sm": {
+      "$type": "shadow",
+      "$value": {
+        "offsetX": "0px",
+        "offsetY": "2px",
+        "blur": "8px",
+        "spread": "0px",
+        "color": "#00000026"
+      }
     }
   }
 }
 ```
 
-## 🤝 Contributing
+Compatible with Tokens Studio, Style Dictionary v4, and any DTCG-compliant tool.
 
-Contributions are welcome! Please read the contribution guidelines first.
+## Project Structure
 
-## 📄 License
+```
+design-system-automation/
+├── app.py                        # Main Gradio application (~5000 lines)
+├── figma-plugin/                 # Figma plugin for token import + visual spec
+│   ├── manifest.json
+│   ├── src/code.js               # Plugin logic (v7)
+│   └── ui/ui.html                # Plugin UI
+├── agents/
+│   ├── crawler.py                # Page discovery
+│   ├── extractor.py              # 8-source CSS extraction (Playwright)
+│   ├── firecrawl_extractor.py    # Deep CSS extraction (Firecrawl)
+│   ├── normalizer.py             # Token dedup, naming, normalization
+│   ├── llm_agents.py             # AURORA, ATLAS, SENTINEL, NEXUS
+│   └── ...
+├── core/
+│   ├── color_classifier.py       # Deterministic color classification (815 lines)
+│   ├── rule_engine.py            # WCAG, type scale, spacing grid analysis
+│   ├── color_utils.py            # Color math, contrast, ramp generation
+│   ├── token_schema.py           # Pydantic models (DTCG compliant)
+│   └── ...
+├── config/
+│   ├── .env.example              # Environment template
+│   ├── settings.py               # Configuration
+│   └── agents.yaml               # Agent configurations
+├── tests/                        # 148 tests (82 deterministic + 27 agent + 35 live + 4 pipeline)
+└── docs/                         # Medium article, LinkedIn post, image guide
+```
+
+## Tech Stack
+
+| Component | Technology |
+|-----------|-----------|
+| UI | Gradio |
+| Extraction | Playwright + Firecrawl |
+| Classification | Custom rule-based (Python) |
+| AI Agents | Qwen 72B + Llama 3.3 70B via HuggingFace Inference API |
+| Hosting | HuggingFace Spaces (Docker) |
+| Figma | Custom plugin (Variables API + Styles API) |
+| Token Format | W3C DTCG v1 (October 2025) |
+| Tests | pytest — 148 passing |
+
+## Tests
+
+```bash
+python -m pytest tests/ -q
+```
+
+## License
 
 MIT
 
 ---
 
-Built with ❤️ for designers who've lost their source files.
+Built by [Riaz](https://medium.com/@designwithriaz) — a UX Design Manager automating design systems with AI.
