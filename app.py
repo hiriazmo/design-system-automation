@@ -4503,11 +4503,11 @@ def create_ui():
                         elem_classes=["section-desc"])
             with gr.Row():
                 hf_token_input = gr.Textbox(
-                    label="HF Token", placeholder="hf_xxxx", type="password",
-                    scale=4, value=HF_TOKEN_FROM_ENV,
+                    label="HF Token", placeholder="hf_xxxx" if not HF_TOKEN_FROM_ENV else "Token loaded from environment",
+                    type="password", scale=4, value="",
                 )
                 save_token_btn = gr.Button("💾 Save", scale=1)
-            token_status = gr.Markdown("✅ Token loaded" if HF_TOKEN_FROM_ENV else "⏳ Enter token")
+            token_status = gr.Markdown("✅ Token loaded from environment" if HF_TOKEN_FROM_ENV else "⏳ Enter token")
             
             def save_token(token):
                 if token and len(token) > 10:
